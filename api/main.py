@@ -1,3 +1,10 @@
+import os
+import sys
+import uuid
+
+# Add the project root to the Python path to fix Vercel import errors
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -5,8 +12,6 @@ from pydantic import BaseModel
 from graph.workflow import app_graph
 from config.settings import settings
 from utils.logger import logger
-import uuid
-import os
 
 app = FastAPI(title="Multi-Agent Deep Research API")
 
