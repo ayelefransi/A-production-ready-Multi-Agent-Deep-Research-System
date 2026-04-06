@@ -6,15 +6,15 @@ from config.settings import settings
 from tenacity import retry, stop_after_attempt, wait_fixed
 import os
 
-# Ensure API key is set for langchain
-if settings.gemini_api_key:
-    os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
-
-llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite-preview", temperature=0.2)
-structured_llm = llm.with_structured_output(ResearcherOutput)
-
 @retry(stop=stop_after_attempt(2), wait=wait_fixed(2))
 async def researcher_node(state: dict) -> dict:
+    # Ensure API key is set for langchain
+    if settings.gemini_api_key:
+        os.environ["GOOGLE_API_KEY"] = settings.gemini_api_key
+
+    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite-preview", temperature=0.2)
+    structured_llm = llm.with_structured_output(ResearcherOutput)
+
     query = state.get("query", "")
     logger.info("researcher_agent_started", query=query)
     

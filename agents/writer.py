@@ -4,11 +4,11 @@ from utils.logger import logger
 from tenacity import retry, stop_after_attempt, wait_fixed
 import json
 
-llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite-preview", temperature=0.4)
-structured_llm = llm.with_structured_output(ResearchReport)
-
 @retry(stop=stop_after_attempt(2), wait=wait_fixed(2))
 async def writer_node(state: dict) -> dict:
+    llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite-preview", temperature=0.4)
+    structured_llm = llm.with_structured_output(ResearchReport)
+
     query = state.get("query", "")
     researcher_output = state.get("researcher_output", {})
     analyst_output = state.get("analyst_output", {})
