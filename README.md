@@ -1,9 +1,10 @@
 # Multi-Agent Deep Research System
-
+(you can get the full deployed app here https://deepagentlab.vercel.app/"
 A production-ready Multi-Agent Deep Research System built with LangGraph, FastAPI, and Pydantic. It leverages Gemini 1.5 Pro to coordinate specialized agents (Researcher, Analyst, and Writer) to perform comprehensive, automated research and analysis on complex topics.
 
 ## Architecture
 
+<img width="955" height="458" alt="_- visual selection" src="https://github.com/user-attachments/assets/5b3a4417-83b9-4a49-aec9-a02e2636c55e" />
 
 ## Features
 - **Multi-Agent Orchestration**: Handled by `LangGraph` defining explicit state transitions.
