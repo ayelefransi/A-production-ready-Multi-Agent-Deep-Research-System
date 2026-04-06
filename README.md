@@ -21,7 +21,6 @@ A production-ready Multi-Agent Deep Research System built with LangGraph, FastAP
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -r requirements.txt
    ```
-
 2. **Configuration**
    Copy the example environment file and fill in your keys:
    ```bash
