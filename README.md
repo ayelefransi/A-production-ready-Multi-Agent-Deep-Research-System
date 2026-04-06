@@ -4,7 +4,8 @@ A production-ready Multi-Agent Deep Research System built with LangGraph, FastAP
 
 ## Architecture
 
-<img width="955" height="458" alt="_- visual selection" src="https://github.com/user-attachments/assets/5b3a4417-83b9-4a49-aec9-a02e2636c55e" />
+<img width="8192" height="905" alt="mermaid-ai-diagram-2026-04-06-133312" src="https://github.com/user-attachments/assets/8db35e71-60f9-4f3d-ac4d-31752153a125" />
+
 
 ## Features
 - **Multi-Agent Orchestration**: Handled by `LangGraph` defining explicit state transitions.
