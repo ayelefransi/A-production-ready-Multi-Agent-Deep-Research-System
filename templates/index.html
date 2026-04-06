@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent Researcher</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-elements">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+    
+    <div class="container">
+        <header>
+            <h1>Deep Research <span>AI</span></h1>
+            <p>Enter a complex topic and watch the Multi-Agent system autonomously gather sources and synthesize a comprehensive report.</p>
+        </header>
+
+        <main>
+            <div class="search-glass">
+                <form id="research-form">
+                    <input type="text" id="query-input" placeholder="Analyze the potential long term effects of deep-sea mining..." required autocomplete="off">
+                    <button type="submit" id="search-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+
+            <div id="loading-container" class="hidden">
+                <div class="spinner"></div>
+                <div class="loading-steps">
+                    <p class="step active" id="step-researcher">Researcher Agent is gathering context...</p>
+                    <p class="step" id="step-analyst">Analyst Agent is synthesizing insights...</p>
+                    <p class="step" id="step-writer">Writer Agent is formatting the final report...</p>
+                </div>
+            </div>
+
+            <div id="error-container" class="hidden">
+                <div class="error-glass">
+                    <h3>Error</h3>
+                    <p id="error-message"></p>
+                </div>
+            </div>
+
+            <div id="results-container" class="hidden">
+                <div class="results-glass">
+                    <div id="report-content" class="markdown-body"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+[
+  { "id": 1, "query": "What are the latest advancements in solid-state batteries for EVs as of 2024?" },
+  { "id": 2, "query": "Analyze the impact of Generative AI on the cybersecurity landscape." },
+  { "id": 3, "query": "What is the current consensus on the health risks of microplastics in human blood?" },
+  { "id": 4, "query": "Compare the economic policies of the US and EU regarding semiconductor manufacturing." },
+  { "id": 5, "query": "What are the potential applications of CRISPR-Cas9 in treating genetic disorders?" },
+  { "id": 6, "query": "Explore the ongoing debate surrounding lab-grown meat vs. traditional agriculture." },
+  { "id": 7, "query": "How is climate change affecting global coffee production?" },
+  { "id": 8, "query": "Analyze exactly how the James Webb Space Telescope has changed our understanding of early galaxies." },
+  { "id": 9, "query": "What are the architectural differences between GPT-4 and Claude 3 Opus?" },
+  { "id": 10, "query": "Evaluate the current state of nuclear fusion research, specifically the progress at ITER." },
+  { "id": 11, "query": "What is the role of the microbiome in mental health?" },
+  { "id": 12, "query": "Assess the geopolitical implications of rare earth element mining." },
+  { "id": 13, "query": "Describe the core principles and challenges of quantum error correction." },
+  { "id": 14, "query": "What are the long-term effects of remote work on urban real estate markets?" },
+  { "id": 15, "query": "Analyze the effectiveness of carbon capture and storage (CCS) technologies." },
+  { "id": 16, "query": "What is the current status of the Artemis program and human missions to the Moon?" },
+  { "id": 17, "query": "Explore the ethical considerations of autonomous weapon systems." },
+  { "id": 18, "query": "How has the rise of GLP-1 agonists impacted the global pharmaceutical industry?" },
+  { "id": 19, "query": "Analyze the potential impact of deep-sea mining on marine ecosystems." },
+  { "id": 20, "query": "What are the main theories explaining the Fermi Paradox in recent astrobiology?" }
+]

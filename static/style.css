@@ -1,0 +1,274 @@
+:root {
+    --bg-color: #050505;
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0a0;
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --accent-purple: #7b2cbf;
+    --accent-blue: #3a86ff;
+    --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    line-height: 1.6;
+}
+
+/* Background Gradients */
+.background-elements {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+    overflow: hidden;
+}
+
+.glow-orb {
+    position: absolute;
+    width: 50vw;
+    height: 50vw;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.25;
+    animation: float 20s infinite alternate cubic-bezier(0.5, 0, 0.5, 1);
+}
+
+.orb-1 {
+    top: -10%;
+    left: -10%;
+    background: radial-gradient(circle, var(--accent-purple) 0%, transparent 70%);
+}
+
+.orb-2 {
+    bottom: -10%;
+    right: -10%;
+    background: radial-gradient(circle, var(--accent-blue) 0%, transparent 70%);
+    animation-delay: -10s;
+}
+
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(5%, 10%) scale(1.1); }
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 3rem;
+    animation: slideDown 0.8s ease-out;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 1rem;
+}
+
+h1 span {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+header p {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* Glassmorphism Generic */
+.search-glass, .results-glass, .error-glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Search Bar */
+.search-glass {
+    padding: 0.5rem;
+    margin-bottom: 3rem;
+    transition: var(--transition);
+}
+
+.search-glass:focus-within {
+    border-color: rgba(255,255,255,0.2);
+    box-shadow: 0 8px 32px 0 rgba(123, 44, 191, 0.2);
+}
+
+#research-form {
+    display: flex;
+    align-items: center;
+}
+
+#query-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: 1rem 1.5rem;
+    color: white;
+    font-size: 1.1rem;
+    font-family: inherit;
+    outline: none;
+}
+
+#query-input::placeholder {
+    color: rgba(255,255,255,0.3);
+}
+
+#search-btn {
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    border: none;
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: var(--transition);
+}
+
+#search-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+#search-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px rgba(58, 134, 255, 0.5);
+}
+
+#search-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Loading State */
+#loading-container {
+    text-align: center;
+    padding: 3rem 0;
+    animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent-blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 2rem auto;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.step {
+    color: var(--text-secondary);
+    font-size: 1rem;
+    opacity: 0.4;
+    transition: var(--transition);
+}
+
+.step.active {
+    color: var(--text-primary);
+    opacity: 1;
+    font-weight: 600;
+    transform: scale(1.05);
+}
+
+/* Results Area */
+.results-glass {
+    padding: 2.5rem;
+    animation: slideUp 0.6s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.error-glass {
+    padding: 2rem;
+    border-color: rgba(255, 50, 50, 0.3);
+    background: rgba(255, 50, 50, 0.05);
+    text-align: center;
+}
+
+.error-glass h3 {
+    color: #ff5e5e;
+    margin-bottom: 0.5rem;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Markdown Rendering Styles */
+.markdown-body h1 { 
+    font-size: 2.2rem; 
+    border-bottom: 1px solid var(--glass-border); 
+    padding-bottom: 0.8rem; 
+    margin-bottom: 1.5rem;
+    background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.markdown-body h2 { font-size: 1.5rem; color: #e0e0e0; margin-top: 2rem; margin-bottom: 1rem;}
+.markdown-body p { margin-bottom: 1rem; color: #cccccc; line-height: 1.8;}
+.markdown-body ul, .markdown-body ol { margin-bottom: 1.5rem; padding-left: 1.5rem; color: #cccccc; }
+.markdown-body li { margin-bottom: 0.6rem; }
+.markdown-body a { color: var(--accent-blue); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body strong { color: #ffffff; }
+.markdown-body blockquote { 
+    border-left: 4px solid var(--accent-purple); 
+    padding-left: 1rem; 
+    color: var(--text-secondary); 
+    background: rgba(255,255,255,0.02);
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+}
+
+.hidden {
+    display: none !important;
+}
