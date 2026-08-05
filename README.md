@@ -25,23 +25,8 @@ A highly resilient, production-grade Multi-Agent Deep Research System built with
 
 ## Architecture Diagram
 
-```mermaid
-graph TD
-    START --> Planner
-    Planner --> |Send API| Researcher1
-    Planner --> |Send API| Researcher2
-    Planner --> |Send API| ResearcherN
-    Researcher1 --> Collector
-    Researcher2 --> Collector
-    ResearcherN --> Collector
-    Collector --> Analyst
-    Analyst --> Critic
-    Critic --> |Replan Required| Planner
-    Critic --> |Proceed| Writer
-    Writer --> Editor
-    Editor --> |Retry| Writer
-    Editor --> |Pass| END
-```
+![Uploading Multi Agent For Reasearch  Architecture.png…]()
+
 
 ## Setup Instructions
 
