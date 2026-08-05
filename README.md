@@ -25,7 +25,8 @@ A highly resilient, production-grade Multi-Agent Deep Research System built with
 
 ## Architecture Diagram
 
-![Uploading Multi Agent For Reasearch  Architecture.png…]()
+<img width="1536" height="1024" alt="Multi Agent For Reasearch  Architecture" src="https://github.com/user-attachments/assets/439337b7-655e-4f78-89fb-bb9f20a9764f" />
+
 
 
 ## Setup Instructions
