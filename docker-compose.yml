@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.cache:/app/.cache
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - CACHE_BACKEND=diskcache
+      - MEMORY_BACKEND=sqlite
+      # Optional: Uncomment and configure Redis if you switch backends
+      # - CACHE_BACKEND=redis
+      # - CACHE_REDIS_URL=redis://redis:6379/0
+
+  # Optional Redis service if you prefer it over sqlite/diskcache
+  # redis:
+  #   image: redis:alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+
+volumes:
+  redis_data:

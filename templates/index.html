@@ -1,63 +1,497 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Agent Researcher</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <title>DeepAgent Lab - Multi-Agent Research System</title>
+    <meta name="description"
+        content="An AI-powered multi-agent research system that autonomously decomposes queries, gathers sources, cross-references findings, and produces comprehensive research reports.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-    <div class="background-elements">
-        <div class="glow-orb orb-1"></div>
-        <div class="glow-orb orb-2"></div>
-    </div>
-    
-    <div class="container">
-        <header>
-            <h1>Deep Research <span>AI</span></h1>
-            <p>Enter a complex topic and watch the Multi-Agent system autonomously gather sources and synthesize a comprehensive report.</p>
-        </header>
 
-        <main>
-            <div class="search-glass">
-                <form id="research-form">
-                    <input type="text" id="query-input" placeholder="Analyze the potential long term effects of deep-sea mining..." required autocomplete="off">
-                    <button type="submit" id="search-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<body>
+    <!-- Animated Background -->
+    <div class="bg-mesh">
+        <div class="mesh-gradient mesh-1"></div>
+        <div class="mesh-gradient mesh-2"></div>
+        <div class="mesh-gradient mesh-3"></div>
+        <div class="mesh-gradient mesh-4"></div>
+        <div class="noise-overlay"></div>
+    </div>
+
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
+                        </svg>
+                    </div>
+                    <div class="logo-text">
+                        <span class="logo-name">DeepAgent</span>
+                        <span class="logo-tag">Lab</span>
+                    </div>
+                </div>
+                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 18l-6-6 6-6" />
+                    </svg>
+                </button>
+            </div>
+
+            <button class="new-research-btn" id="new-research-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                New Research
+            </button>
+
+            <div class="sidebar-section">
+                <h3 class="sidebar-section-title">Research History</h3>
+                <div class="history-list" id="history-list">
+                    <div class="history-empty" id="history-empty">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32"
+                            height="32">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                        </svg>
+                        <p>No research yet</p>
+                        <span>Start your first research above</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <div class="system-status" id="system-status">
+                    <div class="status-dot online"></div>
+                    <span>System Online</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="main-content">
+            <!-- Mobile Header -->
+            <div class="mobile-header">
+                <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open menu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
+                <span class="mobile-title">DeepAgent Lab</span>
+            </div>
+
+            <!-- Welcome / Search View -->
+            <div class="welcome-view" id="welcome-view">
+                <div class="welcome-hero">
+                    <div class="hero-badge">Multi-Agent Research System</div>
+                    <h1>Deep Research <span class="gradient-text">AI</span></h1>
+                    <p class="hero-subtitle">Enter a complex topic and watch 6 specialized AI agents autonomously plan,
+                        research, verify, analyze, write, and quality-check a comprehensive report.</p>
+                </div>
+
+                <div class="search-container">
+                    <form id="research-form" class="search-form">
+                        <div class="search-input-wrapper">
+                            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <input type="text" id="query-input"
+                                placeholder="Analyze the potential long-term effects of deep-sea mining on marine ecosystems..."
+                                required autocomplete="off" spellcheck="false">
+                            <button type="submit" id="search-btn" aria-label="Start Research">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    <polyline points="12 5 19 12 12 19"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="search-hints">
+                            <span class="hint-label">Try:</span>
+                            <button type="button" class="hint-chip"
+                                data-query="What are the latest advancements in solid-state batteries for EVs?">Solid-state
+                                batteries</button>
+                            <button type="button" class="hint-chip"
+                                data-query="Analyze the impact of Generative AI on the cybersecurity landscape">GenAI &
+                                cybersecurity</button>
+                            <button type="button" class="hint-chip"
+                                data-query="What are the potential applications of CRISPR-Cas9 in treating genetic disorders?">CRISPR
+                                applications</button>
+                            <button type="button" class="hint-chip"
+                                data-query="Compare the economic policies of the US and EU regarding semiconductor manufacturing">Semiconductor
+                                policy</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon planner-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path
+                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                <path d="M9 14l2 2 4-4" />
+                            </svg>
+                        </div>
+                        <h3>Smart Planner</h3>
+                        <p>Decomposes queries into targeted sub-questions with replanning support</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon researcher-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                <line x1="11" y1="8" x2="11" y2="14" />
+                                <line x1="8" y1="11" x2="14" y2="11" />
+                            </svg>
+                        </div>
+                        <h3>Parallel Research</h3>
+                        <p>Concurrent multi-tool searches across all sub-questions via Send API</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon critic-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M9 12l2 2 4-4" />
+                                <circle cx="12" cy="12" r="10" />
+                            </svg>
+                        </div>
+                        <h3>Self-Healing Critic</h3>
+                        <p>Cross-checks claims against sources and triggers replan loops if gaps are found</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon analyst-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path
+                                    d="M21 21H4.6c-.56 0-.84 0-1.054-.109a1 1 0 01-.437-.437C3 20.24 3 19.96 3 19.4V3" />
+                                <path d="M7 14l4-4 4 4 6-6" />
+                            </svg>
+                        </div>
+                        <h3>Deep Analysis</h3>
+                        <p>Cross-references sources with evidence strength ratings and gap detection</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon writer-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                        </div>
+                        <h3>Pro Writer</h3>
+                        <p>Generates publication-quality reports with inline citations and methodology</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon editor-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+                                <path d="M14 2v6h6" />
+                                <path d="M9 15l2 2 4-4" />
+                            </svg>
+                        </div>
+                        <h3>QA Editor</h3>
+                        <p>Automated quality gate checking citations, completeness, and schema validity</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent Pipeline Progress View -->
+            <div class="pipeline-view hidden" id="pipeline-view">
+                <div class="pipeline-header">
+                    <h2 id="pipeline-query-text">Researching...</h2>
+                    <button class="cancel-btn" id="cancel-btn" title="Cancel research">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Horizontal Pipeline -->
+                <div class="pipeline-track">
+                    <div class="pipeline-connector"></div>
+                    <div class="pipeline-node" data-agent="planner" id="node-planner">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path
+                                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Planner</span>
+                        <span class="node-time" id="time-planner"></span>
+                    </div>
+                    <div class="pipeline-node" data-agent="researcher" id="node-researcher">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <circle cx="11" cy="11" r="8" />
+                                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Researcher</span>
+                        <span class="node-time" id="time-researcher"></span>
+                    </div>
+                    <div class="pipeline-node" data-agent="collector" id="node-collector">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Collector</span>
+                        <span class="node-time" id="time-collector"></span>
+                    </div>
+                    <div class="pipeline-node" data-agent="analyst" id="node-analyst">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path
+                                        d="M21 21H4.6c-.56 0-.84 0-1.054-.109a1 1 0 01-.437-.437C3 20.24 3 19.96 3 19.4V3" />
+                                    <path d="M7 14l4-4 4 4 6-6" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Analyst</span>
+                        <span class="node-time" id="time-analyst"></span>
+                    </div>
+                    <div class="pipeline-node" data-agent="critic" id="node-critic">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M9 12l2 2 4-4" />
+                                    <circle cx="12" cy="12" r="10" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Critic</span>
+                        <span class="node-time" id="time-critic"></span>
+                    </div>
+                    <div class="pipeline-node" data-agent="writer" id="node-writer">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M12 20h9" />
+                                    <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Writer</span>
+                        <span class="node-time" id="time-writer"></span>
+                    </div>
+                    <div class="pipeline-node" data-agent="editor" id="node-editor">
+                        <div class="node-ring">
+                            <div class="node-icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+                                    <path d="M14 2v6h6" />
+                                    <path d="M9 15l2 2 4-4" />
+                                </svg>
+                            </div>
+                        </div>
+                        <span class="node-label">Editor</span>
+                        <span class="node-time" id="time-editor"></span>
+                    </div>
+                </div>
+
+                <!-- Status Badges -->
+                <div class="pipeline-badges">
+                    <div class="iteration-badge hidden" id="iteration-badge">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <polyline points="1 4 1 10 7 10"></polyline>
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                        </svg>
+                        <span id="iteration-text">Iteration 1</span>
+                    </div>
+                    <div class="replan-badge hidden" id="replan-badge">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <path
+                                d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                        </svg>
+                        <span id="replan-text">Replan 1</span>
+                    </div>
+                    <div class="parallel-badge hidden" id="parallel-badge">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M8 12h8"></path>
+                            <path d="M12 8v8"></path>
+                        </svg>
+                        <span id="parallel-text">0 / 0 sub-questions</span>
+                    </div>
+                </div>
+
+                <!-- Live Activity Log -->
+                <div class="activity-log" id="activity-log">
+                    <h4 class="activity-log-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"
+                            height="16">
+                            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                        </svg>
+                        Live Activity
+                    </h4>
+                    <div class="activity-entries" id="activity-entries"></div>
+                </div>
+
+                <!-- Live Preview Panel -->
+                <div class="live-preview" id="live-preview">
+                    <div class="preview-card hidden" id="preview-planner">
+                        <h4>Research Plan</h4>
+                        <p class="preview-strategy" id="preview-strategy"></p>
+                        <ul class="preview-questions" id="preview-questions"></ul>
+                    </div>
+                    <div class="preview-card hidden" id="preview-researcher">
+                        <h4>Sources Found</h4>
+                        <div class="preview-sources" id="preview-sources"></div>
+                    </div>
+                    <div class="preview-card hidden" id="preview-critic">
+                        <h4>Quality Review</h4>
+                        <div class="preview-critic-content" id="preview-critic-content"></div>
+                    </div>
+                    <div class="preview-card hidden" id="preview-editor">
+                        <h4>QA Gate</h4>
+                        <div class="preview-editor-content" id="preview-editor-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Report View -->
+            <div class="report-view hidden" id="report-view">
+                <div class="report-toolbar">
+                    <button class="toolbar-btn" id="btn-back" title="Back to search">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                        New Search
+                    </button>
+                    <div class="toolbar-actions">
+                        <button class="toolbar-btn" id="btn-copy" title="Copy to clipboard">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Copy
+                        </button>
+                        <button class="toolbar-btn" id="btn-export-md" title="Download as Markdown">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Export .md
+                        </button>
+                        <button class="toolbar-btn" id="btn-delete" title="Delete this research">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path
+                                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
+                                </path>
+                            </svg>
+                            Delete
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Report Metadata Bar -->
+                <div class="report-meta-bar" id="report-meta-bar">
+                    <div class="meta-chip">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                        <span id="meta-duration">-</span>
+                    </div>
+                    <div class="meta-chip">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
                             <circle cx="11" cy="11" r="8"></circle>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
-                    </button>
-                </form>
-            </div>
+                        <span id="meta-searches">- searches</span>
+                    </div>
+                    <div class="meta-chip">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                        </svg>
+                        <span id="meta-sources">- sources</span>
+                    </div>
+                    <div class="meta-chip">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <polyline points="1 4 1 10 7 10"></polyline>
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                        </svg>
+                        <span id="meta-iterations">- iterations</span>
+                    </div>
+                    <div class="meta-chip">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                            height="14">
+                            <path
+                                d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                        </svg>
+                        <span id="meta-replans">0 replans</span>
+                    </div>
+                </div>
 
-            <div id="loading-container" class="hidden">
-                <div class="spinner"></div>
-                <div class="loading-steps">
-                    <p class="step active" id="step-researcher">Researcher Agent is gathering context...</p>
-                    <p class="step" id="step-analyst">Analyst Agent is synthesizing insights...</p>
-                    <p class="step" id="step-writer">Writer Agent is formatting the final report...</p>
+                <!-- Report Content Cards -->
+                <div class="report-cards" id="report-cards">
+                    <!-- Dynamically populated by JS -->
                 </div>
             </div>
 
-            <div id="error-container" class="hidden">
-                <div class="error-glass">
-                    <h3>Error</h3>
-                    <p id="error-message"></p>
-                </div>
-            </div>
-
-            <div id="results-container" class="hidden">
-                <div class="results-glass">
-                    <div id="report-content" class="markdown-body"></div>
+            <!-- Error View -->
+            <div class="error-view hidden" id="error-view">
+                <div class="error-card">
+                    <div class="error-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="15" y1="9" x2="9" y2="15" />
+                            <line x1="9" y1="9" x2="15" y2="15" />
+                        </svg>
+                    </div>
+                    <h3>Something went wrong</h3>
+                    <p id="error-message">An unexpected error occurred.</p>
+                    <button class="retry-btn" id="retry-btn">Try Again</button>
                 </div>
             </div>
         </main>
     </div>
 
+    <!-- Mobile sidebar overlay -->
+    <div class="sidebar-overlay hidden" id="sidebar-overlay"></div>
+
+    <!-- Toast notification -->
+    <div class="toast hidden" id="toast">
+        <span id="toast-message"></span>
+    </div>
+
     <script src="/static/app.js"></script>
 </body>
+
 </html>

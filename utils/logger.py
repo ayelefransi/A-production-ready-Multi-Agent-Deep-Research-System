@@ -13,6 +13,7 @@ def setup_logger():
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,
+            structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_logger_name,
             structlog.stdlib.add_log_level,
             structlog.stdlib.PositionalArgumentsFormatter(),
@@ -27,6 +28,7 @@ def setup_logger():
         cache_logger_on_first_use=True,
     )
     
-    return structlog.get_logger()
+    return structlog.get_logger("deep_research")
 
 logger = setup_logger()
+

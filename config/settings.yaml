@@ -1,0 +1,117 @@
+# =============================================================================
+# Multi-Agent Deep Research System — Configuration
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# LLM Providers
+# ---------------------------------------------------------------------------
+llm:
+  providers:
+    gemini:
+      model: "gemini-2.5-flash"
+      api_key_env: "GEMINI_API_KEY"
+      temperature_default: 0.2
+    groq:
+      model: "llama-3.1-8b-instant"
+      api_key_env: "GROQ_API_KEY"
+      temperature_default: 0.2
+    openrouter:
+      model: "meta-llama/llama-3.3-70b-instruct:free"
+      api_key_env: "OPENROUTER_API_KEY"
+      temperature_default: 0.2
+
+  # Role → provider mapping.  Primary is tried first; fallbacks in order.
+  roles:
+    planner:
+      primary: groq
+      fallback: [gemini]
+      temperature: 0.2
+    researcher:
+      primary: groq
+      fallback: [gemini]
+      temperature: 0.2
+    critic:
+      primary: groq
+      fallback: [gemini]
+      temperature: 0.2
+    analyst:
+      primary: groq
+      fallback: [gemini]
+      temperature: 0.3
+    writer:
+      primary: groq
+      fallback: [gemini]
+      temperature: 0.4
+    editor:
+      primary: groq
+      fallback: [gemini]
+      temperature: 0.1
+
+  # When true, all LLM calls return deterministic mock output (for tests/CI).
+  mock_mode: false
+
+# ---------------------------------------------------------------------------
+# Embeddings (for memory / dedup / similarity)
+# ---------------------------------------------------------------------------
+embeddings:
+  provider: "local"            # "gemini" or "local"
+  model: "all-MiniLM-L6-v2"   # sentence-transformers model for local
+
+# ---------------------------------------------------------------------------
+# Search tools
+# ---------------------------------------------------------------------------
+search:
+  tavily_enabled: true
+  duckduckgo_enabled: true
+  max_results_per_query: 5
+
+# ---------------------------------------------------------------------------
+# Research pipeline
+# ---------------------------------------------------------------------------
+research:
+  max_iterations: 3            # Total Critic→Researcher loops
+  max_replan_iterations: 2     # Times we can loop back to the Planner
+  enable_critic: true
+  enable_editor: true
+  require_human_approval: false
+  hil_checkpoints:             # Where to place interrupt() calls
+    - "after_planning"
+    # - "after_critique"
+
+# ---------------------------------------------------------------------------
+# Caching
+# ---------------------------------------------------------------------------
+cache:
+  enabled: true
+  backend: "diskcache"         # "diskcache" or "redis"
+  ttl_seconds: 3600
+  directory: ".cache/research"
+  redis_url: "redis://localhost:6379/0"
+
+# ---------------------------------------------------------------------------
+# Long-term memory
+# ---------------------------------------------------------------------------
+memory:
+  enabled: true
+  backend: "sqlite"            # "sqlite" or "redis"
+  db_path: "data/research_memory.db"
+
+# ---------------------------------------------------------------------------
+# Observability / tracing
+# ---------------------------------------------------------------------------
+tracing:
+  enabled: false
+  provider: "langsmith"        # "langsmith" or "langfuse"
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging:
+  level: "INFO"
+
+# ---------------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------------
+api:
+  enable_streaming: true
+  version: "3.0.0"

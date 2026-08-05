@@ -1,78 +1,116 @@
-# Multi-Agent Deep Research System
-(you can get the full deployed app here https://deepagentlab.vercel.app/"
+# Production-Ready Multi-Agent Deep Research System
 
 A production-ready Multi-Agent Deep Research System built with LangGraph, FastAPI, and Pydantic. It leverages Gemini 1.5 Pro to coordinate specialized agents (Researcher, Analyst, and Writer) to perform comprehensive, automated research and analysis on complex topics.
 
-## Architecture
+(You can try the full deployed app here: https://deepagentlab.vercel.app/)
 
-<img width="8192" height="905" alt="mermaid-ai-diagram-2026-04-06-133312" src="https://github.com/user-attachments/assets/8db35e71-60f9-4f3d-ac4d-31752153a125" />
+A highly resilient, production-grade Multi-Agent Deep Research System built with LangGraph, FastAPI, and Pydantic. It coordinates specialized agents to decompose complex queries, perform parallel web research, cross-examine evidence, and synthesize publication-quality reports.
 
+## Key Upgrades in this Architecture
 
-## Features
-- **Multi-Agent Orchestration**: Handled by `LangGraph` defining explicit state transitions.
-- **Strict Data Contracts**: Uses `Pydantic` with LangChain's structured output to ensure agents never fail schemas.
-- **Human-in-the-loop (HIL)**: Configurable ability to pause the workflow after the initial research phase.
-- **Custom Search Tool**: Integrated `Tavily` search with robust Tenacity retry logic.
-- **FastAPI Layer**: Exposes asynchronous endpoints to trigger and resume workflows.
-- **Observability**: Structured JSON logging using `structlog`.
+1. **Supervisor Orchestration & Parallel Fan-Out**
+   - Uses LangGraph's new `Send` API to dynamically spawn one **Researcher Agent** per sub-question, executing searches concurrently rather than sequentially.
+2. **Iterative Self-Healing (Critic Node)**
+   - The **Critic Agent** cross-checks claims against retrieved source texts. If evidence is lacking or quality is below threshold, it triggers a deterministic **replan loop** back to the Planner to adjust sub-questions.
+3. **Automated QA Gate (Editor Node)**
+   - The **Editor Agent** checks citation coverage, section completeness, and word count. If it fails, the **Writer Agent** is retried before returning the final report.
+4. **Provider-Agnostic LLM Router**
+   - Seamlessly mix-and-match LLM providers per agent role (e.g., Opus for Planner, Gemini for Researcher, Groq for Critic) with automatic fallbacks on failure.
+5. **SSE Streaming Interface**
+   - A new `/research/stream` endpoint streams agent transitions, sub-question previews, and iteration loops in real-time.
+6. **Mock Mode for CI/CD**
+   - A `MockChatModel` generates schema-valid, deterministic responses for tests and CI pipelines, ensuring your test suite never burns API quota.
+7. **Long-Term Research Memory**
+   - SQLite-backed memory stores past research runs, optionally using `sentence-transformers` for semantic similarity to deduplicate redundant queries.
+
+## Architecture Diagram
+
+```mermaid
+graph TD
+    START --> Planner
+    Planner --> |Send API| Researcher1
+    Planner --> |Send API| Researcher2
+    Planner --> |Send API| ResearcherN
+    Researcher1 --> Collector
+    Researcher2 --> Collector
+    ResearcherN --> Collector
+    Collector --> Analyst
+    Analyst --> Critic
+    Critic --> |Replan Required| Planner
+    Critic --> |Proceed| Writer
+    Writer --> Editor
+    Editor --> |Retry| Writer
+    Editor --> |Pass| END
+```
 
 ## Setup Instructions
 
-1. **Clone & Environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-2. **Configuration**
-   Copy the example environment file and fill in your keys:
-   ```bash
-   cp .env.example .env
-   ```
-   **Required Keys:**
-   - `GEMINI_API_KEY`: Your Google Gemini API Key.
-   - `TAVILY_API_KEY`: Your Tavily Search API Key.
+### 1. Environment & Dependencies
 
-3. **Running the Server**
-   ```bash
-   uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
-   ```
-
-## Example API Request
-
-**Start Research:**
-
-*PowerShell:*
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/research" -Headers @{"Content-Type"="application/json"} -Body '{"query": "What are the latest advancements in solid-state batteries?"}'
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-*Bash (Linux/Mac):*
+### 2. Configuration
+
+Copy the example environment file:
+```bash
+cp .env.example .env
+```
+Fill in your keys in `.env`. By default, you'll want:
+- `GEMINI_API_KEY` or `OPENROUTER_API_KEY`
+- `TAVILY_API_KEY` (for search)
+
+All behavior settings (max replans, model selection, enabled gates) are configured in `config/settings.yaml`.
+
+### 3. Running the Server
+
+**Locally:**
+```bash
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**With Docker:**
+```bash
+docker-compose up --build
+```
+
+## API Usage
+
+### Standard Request (Blocking)
 ```bash
 curl -X POST "http://localhost:8000/research" \
      -H "Content-Type: application/json" \
      -d '{"query": "What are the latest advancements in solid-state batteries?"}'
 ```
 
-**Resume from Human Approval Checkpoint (if configured):**
-
-*PowerShell:*
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/research/resume" -Headers @{"Content-Type"="application/json"} -Body '{"thread_id": "uuid-from-start-response", "action": "approve"}'
-```
-
-*Bash (Linux/Mac):*
+### Streaming Request (SSE)
+Streams agent progress in real-time.
 ```bash
-curl -X POST "http://localhost:8000/research/resume" \
+curl -X POST "http://localhost:8000/research/stream" \
      -H "Content-Type: application/json" \
-     -d '{"thread_id": "uuid-from-start-response", "action": "approve"}'
+     -d '{"query": "What are the latest advancements in solid-state batteries?"}'
 ```
 
-## Evaluation Guide
-
-To run the evaluation system over the 20 pre-configured test cases:
+### History and Markdown Export
 ```bash
-export PYTHONPATH=$(pwd)
-python evals/evaluator.py
+# List past research sessions
+curl "http://localhost:8000/research/history"
+
+# Export a completed report to Markdown
+curl -OJ "http://localhost:8000/research/{thread_id}/export/markdown"
 ```
-This tests for completeness, schema validity, and source adequacy, outputting an accuracy score.
+
+## Testing & Evaluation
+
+Run the evaluation suite in **Mock Mode** to test the graph logic without hitting actual LLM APIs:
+```bash
+python evals/evaluator.py --mock
+```
+
+Run standard tests:
+```bash
+pytest tests/ -v
+```
