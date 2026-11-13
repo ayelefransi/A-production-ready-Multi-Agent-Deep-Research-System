@@ -8,6 +8,21 @@ import operator
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 
+def merge_sub_question_results(
+    current: Optional[List[Dict[str, Any]]], update: Optional[List[Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """
+    Reducer for the parallel researcher fan-in.
+
+    Researchers append their results concurrently. Writing ``None`` resets the
+    list, which the replan node uses so a new plan starts from fresh evidence
+    (a plain ``operator.add`` reducer cannot clear the channel).
+    """
+    if update is None:
+        return []
+    return (current or []) + update
+
+
 class ResearchState(TypedDict):
     """
     Shared state flowing through the LangGraph research pipeline.
@@ -25,7 +40,7 @@ class ResearchState(TypedDict):
     plan: Optional[Dict[str, Any]]
 
     # Parallel researcher outputs (one dict per sub-question)
-    sub_question_results: Annotated[List[Dict[str, Any]], operator.add]
+    sub_question_results: Annotated[List[Dict[str, Any]], merge_sub_question_results]
 
     # Aggregated/merged researcher output (produced by the collector)
     researcher_output: Optional[Dict[str, Any]]

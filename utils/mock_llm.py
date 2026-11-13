@@ -7,8 +7,12 @@ so tests never burn API quota.
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 import json
-from typing import Any, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type
+
+from config.settings import settings
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
@@ -125,6 +129,47 @@ _MOCK_RESPONSES: dict[str, dict[str, Any]] = {
 }
 
 
+# Per-run call counters. A caller (the API stream, a test) sets this to a
+# fresh dict before running the graph; LangGraph tasks inherit the context,
+# so every node in that run shares it. Unset means "no scripted scenario".
+mock_run_calls: contextvars.ContextVar[Optional[Dict[str, int]]] = contextvars.ContextVar(
+    "mock_run_calls", default=None
+)
+
+# Overrides applied on the FIRST call of a role when mock_scenario is
+# "self_heal": the Critic demands a replan and the Editor fails QA once.
+_SELF_HEAL_FIRST_CALL: dict[str, dict[str, Any]] = {
+    "critic": {
+        "overall_source_adequacy": 0.45,
+        "quality_score": 0.5,
+        "gaps": ["No coverage of long-term implications", "Only two independent sources"],
+        "flags": ["low source diversity"],
+        "should_replan": True,
+        "replan_guidance": "Add sub-questions on long-term implications and seek more sources.",
+        "feedback": "Coverage is too thin to support the analysis.",
+    },
+    "editor": {
+        "citation_coverage": 0.4,
+        "word_count": 60,
+        "passed": False,
+        "quality_warnings": ["Low citation coverage in key_findings", "Summary is too short"],
+        "improvement_suggestions": ["Cite every key finding", "Expand the summary"],
+    },
+}
+
+
+def _response_for(role: str) -> dict[str, Any]:
+    """Pick the canned response for *role*, honouring the scripted scenario."""
+    data = dict(_MOCK_RESPONSES.get(role, {}))
+    calls = mock_run_calls.get()
+    if calls is not None:
+        seen = calls.get(role, 0)
+        calls[role] = seen + 1
+        if settings.mock_scenario == "self_heal" and seen == 0:
+            data.update(_SELF_HEAL_FIRST_CALL.get(role, {}))
+    return data
+
+
 class MockChatModel(BaseChatModel):
     """
     A fake LangChain ChatModel that returns canned responses.
@@ -176,9 +221,10 @@ class MockStructuredModel:
         self._schema = schema
 
     def invoke(self, input: Any, **kwargs: Any) -> BaseModel:
-        data = _MOCK_RESPONSES.get(self._mock.role, {})
-        return self._schema(**data)
+        return self._schema(**_response_for(self._mock.role))
 
     async def ainvoke(self, input: Any, **kwargs: Any) -> BaseModel:
+        if settings.mock_latency_ms:
+            await asyncio.sleep(settings.mock_latency_ms / 1000)
         return self.invoke(input, **kwargs)
 

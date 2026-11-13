@@ -548,6 +548,12 @@ SERIALIZABLE_MAPPING: dict[tuple[str, ...], tuple[str, ...]] = {
         "passthrough",
         "RunnableAssign",
     ),
+    ("langchain", "schema", "runnable", "RunnablePick"): (
+        "langchain_core",
+        "runnables",
+        "passthrough",
+        "RunnablePick",
+    ),
     ("langchain", "schema", "runnable", "RunnableRetry"): (
         "langchain_core",
         "runnables",
@@ -963,6 +969,12 @@ OLD_CORE_NAMESPACES_MAPPING: dict[tuple[str, ...], tuple[str, ...]] = {
         "passthrough",
         "RunnableAssign",
     ),
+    ("langchain_core", "runnables", "passthrough", "RunnablePick"): (
+        "langchain_core",
+        "runnables",
+        "passthrough",
+        "RunnablePick",
+    ),
     ("langchain_core", "runnables", "retry", "RunnableRetry"): (
         "langchain_core",
         "runnables",
@@ -1031,6 +1043,12 @@ _JS_SERIALIZABLE_MAPPING: dict[tuple[str, ...], tuple[str, ...]] = {
         "messages",
         "human",
         "HumanMessageChunk",
+    ),
+    ("langchain_core", "messages", "RemoveMessage"): (
+        "langchain_core",
+        "messages",
+        "modifier",
+        "RemoveMessage",
     ),
     ("langchain_core", "messages", "SystemMessage"): (
         "langchain_core",

@@ -49,6 +49,8 @@ llm:
 
   # When true, all LLM calls return deterministic mock output (for tests/CI).
   mock_mode: false
+  mock_latency_ms: 0           # Artificial delay per mock LLM call (UI demos)
+  mock_scenario: "default"     # "default" or "self_heal" (one replan + one writer retry)
 
 # ---------------------------------------------------------------------------
 # Embeddings (for memory / dedup / similarity)
@@ -114,4 +116,7 @@ logging:
 # ---------------------------------------------------------------------------
 api:
   enable_streaming: true
-  version: "3.0.0"
+  version: "3.1.0"
+  max_query_length: 500        # Characters accepted in a research query
+  rate_limit_per_minute: 10    # Research starts per client IP per minute (0 = off)
+  max_stored_sessions: 200     # In-memory history cap; oldest sessions are evicted

@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     llm_providers: Dict[str, Any] = Field(default_factory=lambda: _llm.get("providers", {}))
     llm_roles: Dict[str, Any] = Field(default_factory=lambda: _llm.get("roles", {}))
     mock_mode: bool = Field(default=_llm.get("mock_mode", False))
+    # Mock-only knobs: artificial per-call latency and a scripted scenario
+    # ("default" or "self_heal", which forces one replan and one writer retry).
+    mock_latency_ms: int = Field(default=_llm.get("mock_latency_ms", 0), ge=0, le=10_000)
+    mock_scenario: str = Field(default=_llm.get("mock_scenario", "default"))
 
     # --- Embeddings ---
     embeddings_provider: str = Field(default=_embeddings.get("provider", "local"))
@@ -116,6 +120,9 @@ class Settings(BaseSettings):
     # --- API ---
     enable_streaming: bool = Field(default=_api.get("enable_streaming", True))
     api_version: str = Field(default=_api.get("version", "3.0.0"))
+    max_query_length: int = Field(default=_api.get("max_query_length", 500), ge=10)
+    rate_limit_per_minute: int = Field(default=_api.get("rate_limit_per_minute", 10), ge=0)
+    max_stored_sessions: int = Field(default=_api.get("max_stored_sessions", 200), ge=1)
 
     model_config = SettingsConfigDict(
         env_file=str(_PROJECT_ROOT / ".env"),

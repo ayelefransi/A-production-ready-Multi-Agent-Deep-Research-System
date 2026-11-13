@@ -10,8 +10,9 @@ from typing import Optional
 class ResearchStore:
     """Thread-safe in-memory store for research sessions."""
 
-    def __init__(self):
+    def __init__(self, max_sessions: int = 200):
         self._store: dict = {}
+        self._max_sessions = max_sessions
         self._lock = threading.Lock()
 
     def save(self, thread_id: str, query: str, status: str, report: Optional[dict] = None,
@@ -43,6 +44,10 @@ class ResearchStore:
                     "updated_at": now,
                 }
                 self._store[thread_id] = entry
+                # Bound memory: evict the oldest sessions beyond the cap.
+                while len(self._store) > self._max_sessions:
+                    oldest = min(self._store.values(), key=lambda x: x["created_at"])
+                    del self._store[oldest["thread_id"]]
             return entry
 
     def get(self, thread_id: str) -> Optional[dict]:
@@ -75,4 +80,6 @@ class ResearchStore:
 
 
 # Global singleton
-research_store = ResearchStore()
+from config.settings import settings  # noqa: E402
+
+research_store = ResearchStore(max_sessions=settings.max_stored_sessions)

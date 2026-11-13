@@ -69,22 +69,17 @@ async def researcher_node(state: Dict[str, Any]) -> Dict[str, Any]:
             pass
 
     # ── Step 2: Optional web fetch for full text ──────────────────────────
-    try:
-        from tools.web_fetch import web_fetch_async
+    from tools.web_fetch import web_fetch_async
 
-        for result in all_search_results[:3]:  # Fetch top 3 only (budget)
-            url = result.get("url", "")
-            if url:
-                try:
-                    full_text = await web_fetch_async(url)
-                    if full_text:
-                        result["full_text_snippet"] = full_text[:2000]
-                        if "web_fetch" not in tools_used:
-                            tools_used.append("web_fetch")
-                except Exception:
-                    pass  # Non-critical
-    except ImportError:
-        pass  # web_fetch not available
+    for result in all_search_results[:3]:  # Fetch top 3 only (budget)
+        url = result.get("url", "")
+        if not url:
+            continue
+        full_text = await web_fetch_async(url)  # best-effort, never raises
+        if full_text:
+            result["full_text_snippet"] = full_text[:2000]
+            if "web_fetch" not in tools_used:
+                tools_used.append("web_fetch")
 
     # ── Step 3: LLM analysis ──────────────────────────────────────────────
     llm = get_llm("researcher", structured_output=SubQuestionResult)

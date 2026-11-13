@@ -49,7 +49,7 @@ async def increment_replan(state: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("replan_loop", replan_count=new_count)
     return {
         "replan_count": new_count,
-        "sub_question_results": [],  # Clear old results for fresh research
+        "sub_question_results": None,  # Reset (see merge_sub_question_results)
         "messages": [f"Replanning (attempt #{new_count})."],
     }
 

@@ -33,6 +33,19 @@ async def execute_search_async(
     Returns:
         dict: {"results": [...], "provider": "tavily" | "duckduckgo"}
     """
+    if settings.mock_mode:
+        return {
+            "results": [
+                {
+                    "title": f"Mock Source {i}",
+                    "url": f"https://example.com/source{i}",
+                    "content": f"Deterministic mock search content {i} for: {query}",
+                }
+                for i in (1, 2)
+            ],
+            "provider": "mock_search",
+        }
+
     if _tavily_client:
         logger.info("executing_search_with_tavily", query=query, depth=search_depth)
         try:
@@ -61,17 +74,21 @@ async def execute_search_async(
 
     logger.info("executing_search_with_ddg", query=query)
     try:
-        results = []
-        with DDGS() as ddgs:
-            # DDGS is synchronous; we can wrap in run_in_executor for full async if needed,
-            # but for simplicity we run it here as it blocks very briefly.
-            ddg_results = list(ddgs.text(query, max_results=max_results))
-            for res in ddg_results:
-                results.append({
-                    "title": res.get("title", ""),
-                    "url": res.get("href", ""),
-                    "content": res.get("body", ""),
-                })
+        def _ddg_search() -> list:
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, max_results=max_results))
+
+        # DDGS is synchronous; keep it off the event loop so parallel
+        # researchers and the SSE stream are not blocked.
+        ddg_results = await asyncio.to_thread(_ddg_search)
+        results = [
+            {
+                "title": res.get("title", ""),
+                "url": res.get("href", ""),
+                "content": res.get("body", ""),
+            }
+            for res in ddg_results
+        ]
         return {"results": results, "provider": "duckduckgo_search"}
     except Exception as e:
         logger.error("failed_ddg_search", error=str(e))
