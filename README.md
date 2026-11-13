@@ -1,4 +1,5 @@
 # Production-Ready Multi-Agent Deep Research System
+<img width="1468" height="726" alt="1" src="https://github.com/user-attachments/assets/ccfdcb0a-7088-4e85-bb3a-544804aecb90" />
 
 A production-ready Multi-Agent Deep Research System built with LangGraph, FastAPI, and Pydantic. It leverages Gemini 1.5 Pro to coordinate specialized agents (Researcher, Analyst, and Writer) to perform comprehensive, automated research and analysis on complex topics.
 
