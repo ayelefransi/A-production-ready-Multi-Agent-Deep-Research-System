@@ -484,6 +484,25 @@ code { font-family: var(--font-mono); font-size: .9em; padding: .1em .35em; bord
 .source-title { font-weight: 500; }
 .source-url { font-size: .8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.report-question { margin-top: var(--s3); font-style: italic; color: var(--ink-2); }
+.confidence { font-size: 1.0625rem; line-height: 1.7; }
+
+.menu { position: relative; }
+.menu-list {
+    position: absolute; right: 0; top: calc(100% + var(--s2)); z-index: 30; width: 19rem; max-width: calc(100vw - 2rem);
+    padding: var(--s2); background: var(--surface); border: 1px solid var(--line-strong);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    transform-origin: top right; animation: pop var(--fast) var(--ease-out);
+}
+.menu-item {
+    display: grid; gap: 2px; width: 100%; padding: var(--s3); border: 0; border-radius: var(--radius-sm);
+    background: none; text-align: left; text-decoration: none; cursor: pointer; color: var(--ink);
+    transition: background-color var(--fast) ease;
+}
+.menu-item strong { font-weight: 600; font-size: .9375rem; }
+.menu-item span { font-size: .8125rem; color: var(--ink-3); }
+@media (hover: hover) and (pointer: fine) { .menu-item:hover { background: var(--surface-2); } }
+
 /* ---------- Error, dialog, toast ---------- */
 .error-box { max-width: 32rem; margin: var(--s7) auto 0; padding: var(--s6); text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .error-box .icon { color: var(--bad); }
@@ -552,6 +571,25 @@ code { font-family: var(--font-mono); font-size: .9em; padding: .1em .35em; bord
         overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
     }
     .stage { column-gap: var(--s3); }
+}
+
+/* ---------- Print / Save as PDF: the report only, ink on white ---------- */
+@media print {
+    @page { margin: 20mm 18mm; }
+    :root, :root[data-theme='dark'] {
+        --bg: #fff; --surface: #fff; --surface-2: #f3f1ea; --ink: #111; --ink-2: #333; --ink-3: #555;
+        --line: #cfcabd; --line-strong: #b9b3a3; --accent: #a8360a; --accent-soft: #fff; --warn-soft: #f6ecd3;
+    }
+    .sidebar, .topbar, .toolbar, .toast, .scrim, .skip-link, .dialog { display: none !important; }
+    .app { display: block; }
+    .main { max-width: none; padding: 0; }
+    .report { max-width: none; }
+    .report > *, .view-enter { animation: none !important; }
+    .report-section h2, .prose h3 { break-after: avoid; }
+    .findings li, .bullets li, .sources li, .executive { break-inside: avoid; }
+    .executive, .sources li { box-shadow: none; }
+    .cite { background: none; padding: 0; }
+    .source-url { white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* ---------- Reduced motion: no animation at all ---------- */

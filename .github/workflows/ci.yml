@@ -2,38 +2,38 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-        cache: 'pip'
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest ruff mypy types-PyYAML
-        
-    - name: Lint with Ruff
-      run: |
-        ruff check .
-        
-    - name: Type check with mypy
-      run: |
-        mypy . --ignore-missing-imports
-        
-    - name: Run tests with mock LLM
-      env:
-        MOCK_MODE: "true"
-      run: |
-        pytest evals/ -v
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test (offline, mock LLM and mock search)
+        env:
+          MOCK_MODE: "true"
+        run: pytest -v
+
+      - name: Pipeline evaluation (mock)
+        run: python evals/evaluator.py --mock

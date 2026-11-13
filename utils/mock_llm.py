@@ -95,16 +95,59 @@ _MOCK_RESPONSES: dict[str, dict[str, Any]] = {
     },
     "writer": {
         "title": "Mock Research Report: Understanding X",
-        "executive_summary": "This report examines X and its implications. Key findings indicate rapid evolution.",
-        "methodology": "Multi-agent pipeline with 3 sub-questions, 2 sources, 1 iteration.",
-        "summary": "X is a well-established technology [1] with growing adoption [2].",
+        "executive_summary": (
+            "X is an established technology whose adoption is accelerating, and the "
+            "available evidence supports continued growth [1]. The strongest support comes "
+            "from peer-reviewed analysis, corroborated by industry reporting [2]. The main "
+            "caveat is that long-term outcomes are not yet documented."
+        ),
+        "methodology": (
+            "A multi-agent pipeline (planner, parallel researchers, analyst, critic, writer, "
+            "editor) decomposed the question into three sub-questions, ran six searches and "
+            "reviewed two unique sources, weighted by credibility. Claims were verified "
+            "against source text before drafting."
+        ),
+        "summary": (
+            "### Current state\n"
+            "X is a well-established technology with a stable technical foundation [1]. "
+            "Academic analysis describes its core mechanism as mature, with incremental "
+            "rather than fundamental change expected over the near term [1]. Industry "
+            "reporting independently reaches the same conclusion, which strengthens "
+            "confidence in the assessment [2].\n\n"
+            "### Adoption and drivers\n"
+            "Adoption is increasing across the sectors examined [2]. The evidence suggests "
+            "that falling costs and better tooling are the main drivers, although only one "
+            "source quantifies the effect [2]. **Organisational readiness**, not technical "
+            "capability, appears to be the binding constraint on further uptake [1].\n\n"
+            "### Implications\n"
+            "The relationship between X and Y is described as complementary rather than "
+            "competitive [1]. Where both are deployed together, sources report compounding "
+            "benefits, but this finding rests on a single study and should be treated as "
+            "provisional [2]. Decision makers should plan for gradual integration instead "
+            "of abrupt replacement."
+        ),
         "key_findings": [
-            "X is rapidly evolving [1]",
-            "Adoption is increasing [2]",
+            "X rests on a mature technical foundation and is evolving incrementally [1].",
+            "Adoption is rising across the sectors examined, driven mainly by falling costs [2].",
+            "Organisational readiness, not technology, is the main constraint on uptake [1].",
+            "X and Y are complementary; combined deployment may compound benefits [2].",
         ],
-        "risks": ["Adoption challenges remain"],
+        "risks": [
+            "Adoption challenges remain where organisational readiness is low [1].",
+            "Evidence for combined X and Y benefits depends on a single study [2].",
+        ],
         "contradictions": [],
-        "knowledge_gaps": [],
+        "knowledge_gaps": ["Long-term outcomes of X adoption are not yet documented."],
+        "recommendations": [
+            "Assess organisational readiness before committing to large-scale adoption.",
+            "Pilot combined X and Y deployment on a limited scope and measure the outcome.",
+            "Revisit the evidence as longer-term studies are published.",
+        ],
+        "confidence_level": "moderate",
+        "confidence_rationale": (
+            "The two sources are credible and agree, but the evidence base is small and "
+            "one finding rests on a single study."
+        ),
         "sources": [
             {"index": 1, "title": "Mock Source 1", "url": "https://example.com/source1", "credibility": 0.9},
             {"index": 2, "title": "Mock Source 2", "url": "https://example.com/source2", "credibility": 0.8},
@@ -119,6 +162,7 @@ _MOCK_RESPONSES: dict[str, dict[str, Any]] = {
             "methodology": True,
             "summary": True,
             "key_findings": True,
+            "risks": True,
             "sources": True,
         },
         "schema_valid": True,

@@ -136,6 +136,17 @@ def test_history_get_export_delete_lifecycle(client):
     assert "attachment" in export.headers["content-disposition"]
     assert export.text.startswith("# Mock Research Report: Understanding X")
     assert "## Sources" in export.text and "Credibility: 90%" in export.text
+    assert f"**Research question:** {QUERY}" in export.text
+    assert "## Recommendations" in export.text
+
+    page = client.get(f"/research/{thread_id}/export/html")
+    assert page.status_code == 200
+    assert page.headers["content-type"].startswith("text/html")
+    assert page.headers["content-disposition"].endswith('.html"')
+    assert "script" not in page.headers["content-security-policy"]
+    assert "<script" not in page.text.lower()
+    assert '<a class="cite" href="#source-1">[1]</a>' in page.text
+    assert 'id="source-1"' in page.text and "Recommendations" in page.text
 
     assert client.delete(f"/research/{thread_id}").status_code == 200
     assert client.get(f"/research/{thread_id}").status_code == 404
@@ -235,3 +246,23 @@ def test_human_approval_reject(client, approval_graph):
     ).json()
     assert rejected["status"] == "rejected"
     assert client.get(f"/research/{pause['thread_id']}").json()["status"] == "rejected"
+
+
+def test_html_export_escapes_untrusted_report_text():
+    from utils.report_export import report_to_html
+
+    page = report_to_html(
+        {
+            "title": "<script>alert(1)</script>",
+            "executive_summary": "<img src=x onerror=alert(1)> [1]",
+            "summary": "### Heading <b>x</b>\n- item [bad](javascript:alert(1))\n\nText **bold**.",
+            "key_findings": ["<svg onload=alert(1)>"],
+            "sources": [{"index": 1, "title": "<i>t</i>", "url": "javascript:alert(1)",
+                         "credibility": 0.5}],
+        },
+        query="<script>q</script>",
+    )
+    assert "<script>" not in page and "<img" not in page and "<svg" not in page
+    assert 'href="javascript:' not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+    assert "<strong>bold</strong>" in page

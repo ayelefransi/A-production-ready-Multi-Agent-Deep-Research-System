@@ -1,4 +1,4 @@
-"""Writer node - structured report with inline citations."""
+"""Writer node - evidence-grounded report with verified inline citations."""
 
 from __future__ import annotations
 
@@ -11,20 +11,44 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from schemas.report import ReportMetadata, ResearchReport
 from utils.llm_router import get_llm
 from utils.logger import logger
+from utils.report_quality import evidence_digest, ground_report, rank_sources
+
+
+def _truncate_json(obj: Any, max_chars: int) -> str:
+    dumped = json.dumps(obj, indent=2)
+    if len(dumped) > max_chars:
+        return dumped[:max_chars] + "\n... [truncated for brevity]"
+    return dumped
+
+
+def _editor_feedback(state: Dict[str, Any]) -> str:
+    """On the retry pass, tell the Writer exactly what the Editor rejected."""
+    if not state.get("scratchpad", {}).get("writer_retried"):
+        return ""
+    qa = state.get("editor_result") or {}
+    issues = list(qa.get("quality_warnings", [])) + list(qa.get("improvement_suggestions", []))
+    if not issues:
+        return ""
+    bullet_list = "\n".join(f"    - {issue}" for issue in issues)
+    return f"""
+    REVISION REQUIRED. The Editor rejected your previous draft. Fix every point:
+{bullet_list}
+    """
 
 
 @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=60))
 async def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Produce a comprehensive, publication-quality research report with
-    executive summary, methodology, inline citations, and structured sections.
+    Produce the research report, then ground it: citations that do not map to
+    a retrieved source are removed and the source list is rebuilt from the
+    Researchers' evidence, so the report cannot reference an invented source.
     """
     start = time.time()
     query = state.get("query", "")
-    researcher_output = state.get("researcher_output", {})
-    analyst_output = state.get("analyst_output", {})
-    plan = state.get("plan", {})
-    verification_report = state.get("verification_report", {})
+    researcher_output = state.get("researcher_output") or {}
+    analyst_output = state.get("analyst_output") or {}
+    plan = state.get("plan") or {}
+    verification_report = state.get("verification_report") or {}
     iteration_count = state.get("iteration_count", 1)
     replan_count = state.get("replan_count", 0)
 
@@ -32,84 +56,68 @@ async def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     llm = get_llm("writer", structured_output=ResearchReport)
 
-    # Build numbered source reference
-    sources = researcher_output.get("sources", [])
-    source_reference = ""
-    for i, src in enumerate(sources, 1):
-        source_reference += f"[{i}] {src.get('title', 'Unknown')} - {src.get('url', '')}\n"
-
-    # Truncate large payloads to stay within model context limits
-    def _truncate_json(obj: Any, max_chars: int = 8000) -> str:
-        dumped = json.dumps(obj, indent=2)
-        if len(dumped) > max_chars:
-            return dumped[:max_chars] + "\n... [truncated for brevity]"
-        return dumped
+    sources = rank_sources(researcher_output.get("sources", []))
+    total_searches = researcher_output.get("total_searches_performed", 1)
 
     prompt = f"""
-    You are an expert Writer Agent. Your task is to produce a comprehensive, publication-quality
-    research report from the analysis and research data provided.
+    You are a senior research analyst writing for expert readers (domain specialists,
+    policy makers, investors). Write the report a subject-matter expert would sign.
 
-    ORIGINAL QUERY: {query}
+    RESEARCH QUESTION: {query}
 
     RESEARCH PLAN:
-    {_truncate_json(plan, 1000)}
+    {_truncate_json(plan, 1500)}
 
-    ANALYSIS:
-    {_truncate_json(analyst_output, 4000)}
+    ANALYST SYNTHESIS (insights, evidence strength, contradictions, gaps):
+    {_truncate_json(analyst_output, 6000)}
 
-    SOURCE DATA (summarized):
-    {_truncate_json(researcher_output, 4000)}
+    CRITIC VERIFICATION (per-claim verdicts; do not assert claims marked
+    unsupported or contradicted):
+    {_truncate_json(verification_report, 3000)}
 
-    VERIFICATION REPORT:
-    {_truncate_json(verification_report, 1000)}
+    EVIDENCE. These are the ONLY sources you may cite. Cite with the bracketed
+    number shown, e.g. [3]:
+    {evidence_digest(sources)}
+    {_editor_feedback(state)}
+    STANDARDS (non-negotiable):
+    - Every factual claim carries at least one citation [N]. Never cite a number that
+      is not in the EVIDENCE list. Never invent a source, statistic, date or quote.
+    - Be specific: name the organisations, figures, dates and mechanisms the evidence
+      gives. If the evidence gives no number, do not supply one.
+    - Calibrate language to evidence strength: state strong findings plainly; mark
+      moderate ones ("the evidence suggests"); flag weak or single-source ones.
+    - Where sources disagree, present both positions and say which is better supported.
+    - Analyse, do not list: explain causes, trade-offs and implications.
+    - No filler, no marketing tone, no restating the question, no first person.
 
-    SOURCE REFERENCE (use these citation numbers):
-    {source_reference}
-
-    REPORT REQUIREMENTS:
-
-    1. **title**: A compelling, descriptive title for the report.
-
-    2. **executive_summary**: A concise 2-3 sentence executive summary that captures the
-       most important takeaway. Should stand alone and be useful for busy readers.
-
-    3. **methodology**: Describe how this research was conducted. Mention:
-       - The multi-agent research pipeline used
-       - Number of searches performed ({researcher_output.get('total_searches_performed', 1)})
-       - Number of sources analyzed ({len(sources)})
-       - Number of research iterations ({iteration_count})
-       - Number of replanning cycles ({replan_count})
-
-    4. **summary**: A comprehensive, detailed summary (4-8 paragraphs) with inline citations
-       using [1], [2], etc. corresponding to the source reference numbers above.
-       Use rich markdown formatting (bold, headers, etc.) within the text.
-
-    5. **key_findings**: 5-8 major findings, each with inline citations [N].
-
-    6. **risks**: Identified risks and concerns about the topic.
-
-    7. **contradictions**: Areas where sources disagree.
-
-    8. **knowledge_gaps**: Areas that need further research.
-
-    9. **sources**: A structured list of all cited sources with their index, title, URL,
-       and credibility score. Include ALL sources from the source reference.
-
-    IMPORTANT:
-    - Write at a professional level suitable for publication.
-    - Ensure every claim is backed by at least one citation.
-    - Use varied sentence structure and avoid repetition.
-    - The report should be informative, balanced, and actionable.
+    FIELDS:
+    1. title: precise and descriptive, not clickbait.
+    2. executive_summary: 3-4 sentences giving the answer, the strongest evidence
+       for it, and the main caveat. Must stand alone.
+    3. methodology: how the research was done: a multi-agent pipeline (planner,
+       parallel researchers, analyst, critic, writer, editor), {total_searches} searches,
+       {len(sources)} sources reviewed, {iteration_count} iteration(s), {replan_count}
+       replanning cycle(s); note how sources were weighted by credibility.
+    4. summary: the main analysis, 5-8 paragraphs (450-900 words) in markdown, organised
+       under 3-5 "### " thematic headings that follow the research plan. Cited throughout.
+    5. key_findings: 5-8 findings, one specific, cited sentence each, most important first.
+    6. risks: concrete risks or downsides, each cited where evidence exists.
+    7. contradictions: where sources disagree and how the disagreement was weighed.
+    8. knowledge_gaps: what the evidence could not answer.
+    9. recommendations: 3-5 actionable recommendations that follow from the findings.
+    10. confidence_level: "high", "moderate" or "low" for the report as a whole.
+    11. confidence_rationale: one or two sentences justifying that level (source quality,
+        agreement between sources, coverage gaps).
+    12. sources: the cited sources (index, title, url, credibility) from EVIDENCE.
     """
 
     try:
         result: ResearchReport = await llm.ainvoke(prompt)
 
-        # Attach metadata
         agent_timings = state.get("agent_timings", {})
         result.metadata = ReportMetadata(
             total_sources_scanned=researcher_output.get("total_raw_results", len(sources)),
-            total_searches=researcher_output.get("total_searches_performed", 1),
+            total_searches=total_searches,
             iterations_taken=iteration_count,
             replan_count=replan_count,
             agent_timings=agent_timings,
@@ -118,6 +126,8 @@ async def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
             ),
         )
 
+        report = ground_report(result.model_dump(), sources)
+
         duration = time.time() - start
         timings = dict(agent_timings)
         timings["writer"] = round(duration, 2)
@@ -125,11 +135,12 @@ async def writer_node(state: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(
             "writer_success",
             title=result.title,
+            cited_sources=len(report["sources"]),
             duration_seconds=round(duration, 2),
         )
 
         return {
-            "final_report": result.model_dump(),
+            "final_report": report,
             "agent_timings": timings,
             "messages": [f"Writer generated final report: '{result.title}'."],
         }

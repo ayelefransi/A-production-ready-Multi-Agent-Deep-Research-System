@@ -48,6 +48,7 @@
         while (node.firstChild) node.removeChild(node.firstChild);
     }
 
+    const capitalize = text => String(text).charAt(0).toUpperCase() + String(text).slice(1);
     const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     const percent = v => `${Math.round((Number(v) || 0) * 100)}%`;
 
@@ -161,7 +162,7 @@
             if (!line) { flushParagraph(); list = null; return; }
             if (heading) {
                 flushParagraph(); list = null;
-                root.appendChild(renderInline(heading[2], el(heading[1].length <= 2 ? 'h3' : 'h4')));
+                root.appendChild(renderInline(heading[2], el(heading[1].length <= 3 ? 'h3' : 'h4')));
                 return;
             }
             if (bullet || numbered) {
@@ -227,6 +228,7 @@
     }
 
     function goHome(keepQuery) {
+        document.title = 'DeepAgent Lab - Multi-Agent Research';
         showView('home', 'New research');
         if (!keepQuery) { input.value = ''; updateCounter(); }
         setFieldError('');
@@ -697,8 +699,9 @@
             // Let the last stage settle visibly before switching views.
             setTimeout(() => {
                 if (run !== activeRun) return;
+                const query = activeRun.query;
                 endRun();
-                showReport(data.thread_id, data.report);
+                showReport(data.thread_id, data.report, { query });
                 loadHistory();
             }, 650);
         },
@@ -766,8 +769,9 @@
             const body = await response.json();
             if (run !== activeRun) return;
             if (body.status === 'completed' && body.report) {
+                const query = activeRun.query;
                 endRun();
-                showReport(body.thread_id, body.report);
+                showReport(body.thread_id, body.report, { query });
             } else if (body.status === 'rejected') {
                 endRun();
                 goHome(true);
@@ -800,7 +804,8 @@
         return list;
     }
 
-    function showReport(threadId, report) {
+    function showReport(threadId, report, info) {
+        const context = info || {};
         currentReport = { threadId, report };
         const article = $('report');
         clear(article);
@@ -811,6 +816,7 @@
         const title = el('h1', null, report.title || 'Research report');
         title.id = 'report-title';
         header.appendChild(title);
+        if (context.query) header.appendChild(el('p', 'report-question', `Research question: ${context.query}`));
 
         const stats = el('dl', 'report-stats');
         const stat = (label, value) => {
@@ -819,6 +825,11 @@
             cell.appendChild(el('dd', null, value));
             stats.appendChild(cell);
         };
+        const created = context.createdAt ? new Date(context.createdAt) : new Date();
+        if (!Number.isNaN(created.getTime())) {
+            stat('Date', created.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }));
+        }
+        if (report.confidence_level) stat('Confidence', capitalize(report.confidence_level));
         if (meta.total_duration_seconds) stat('Duration', formatDuration(meta.total_duration_seconds * 1000));
         stat('Sources cited', String((report.sources || []).length));
         stat('Searches', String(meta.total_searches ?? '-'));
@@ -843,7 +854,7 @@
         }
 
         if (report.summary) {
-            const summary = section('Summary');
+            const summary = section('Analysis');
             summary.appendChild(renderMarkdown(report.summary));
             article.appendChild(summary);
         }
@@ -856,6 +867,14 @@
             article.appendChild(findings);
         }
 
+        if ((report.recommendations || []).length) {
+            const recommendations = section('Recommendations');
+            const list = el('ol', 'findings');
+            report.recommendations.forEach(item => list.appendChild(renderInline(String(item), el('li'))));
+            recommendations.appendChild(list);
+            article.appendChild(recommendations);
+        }
+
         [['risks', 'Risks and concerns'], ['contradictions', 'Contradictions'],
             ['knowledge_gaps', 'Areas for further research']].forEach(([key, heading]) => {
             if ((report[key] || []).length) {
@@ -864,6 +883,17 @@
                 article.appendChild(block);
             }
         });
+
+        if (report.confidence_rationale) {
+            const confidence = section('Confidence assessment');
+            const text = el('p', 'confidence');
+            if (report.confidence_level) {
+                text.appendChild(el('strong', null, `${capitalize(report.confidence_level)} confidence. `));
+            }
+            renderInline(report.confidence_rationale, text);
+            confidence.appendChild(text);
+            article.appendChild(confidence);
+        }
 
         if (report.methodology) {
             const method = section('Methodology');
@@ -900,7 +930,10 @@
             child.style.setProperty('--i', String(Math.min(index, 8)));
         });
 
-        $('export-btn').href = `/research/${encodeURIComponent(threadId)}/export/markdown`;
+        const exportBase = `/research/${encodeURIComponent(threadId)}/export`;
+        $('dl-md').href = `${exportBase}/markdown`;
+        $('dl-html').href = `${exportBase}/html`;
+        document.title = `${report.title || 'Research report'} - DeepAgent Lab`;
         showView('report', report.title || 'Research report');
         markActiveHistory(threadId);
     }
@@ -908,8 +941,9 @@
     function reportToText(report) {
         const lines = [`# ${report.title || 'Research report'}`, ''];
         if (report.executive_summary) lines.push(`> ${report.executive_summary}`, '');
-        if (report.summary) lines.push('## Summary', report.summary, '');
-        [['key_findings', 'Key findings'], ['risks', 'Risks and concerns'],
+        if (report.summary) lines.push('## Analysis', report.summary, '');
+        [['key_findings', 'Key findings'], ['recommendations', 'Recommendations'],
+            ['risks', 'Risks and concerns'],
             ['contradictions', 'Contradictions'], ['knowledge_gaps', 'Areas for further research']]
             .forEach(([key, heading]) => {
                 if ((report[key] || []).length) {
@@ -965,6 +999,11 @@
         } catch (error) {
             showToast(`Delete failed: ${error.message}`);
         }
+    }
+
+    function setDownloadMenu(open) {
+        $('download-list').hidden = !open;
+        $('download-btn').setAttribute('aria-expanded', String(open));
     }
 
     function jumpToSource(hash) {
@@ -1040,7 +1079,7 @@
             const response = await fetch(`/research/${encodeURIComponent(session.thread_id)}`);
             if (!response.ok) throw new Error(await errorMessage(response));
             const body = await response.json();
-            showReport(session.thread_id, body.report);
+            showReport(session.thread_id, body.report, { query: body.query, createdAt: body.created_at });
         } catch (error) {
             showToast(`Could not open the report: ${error.message}`);
             loadHistory();
@@ -1138,6 +1177,18 @@
 
         $('back-btn').addEventListener('click', () => goHome(false));
         $('copy-btn').addEventListener('click', copyReport);
+        $('download-btn').addEventListener('click', event => {
+            event.stopPropagation();
+            setDownloadMenu($('download-list').hidden);
+        });
+        $('dl-pdf').addEventListener('click', () => { setDownloadMenu(false); window.print(); });
+        ['dl-html', 'dl-md'].forEach(id => $(id).addEventListener('click', () => {
+            setDownloadMenu(false);
+            showToast('Download started');
+        }));
+        document.addEventListener('click', event => {
+            if (!event.target.closest('#download-menu')) setDownloadMenu(false);
+        });
         $('delete-btn').addEventListener('click', () => deleteDialog.showModal());
         deleteDialog.addEventListener('close', () => {
             if (deleteDialog.returnValue === 'confirm') deleteReport();
@@ -1159,7 +1210,9 @@
         $('sidebar-close').addEventListener('click', closeSidebar);
         scrim.addEventListener('click', closeSidebar);
         document.addEventListener('keydown', event => {
-            if (event.key === 'Escape') closeSidebar();
+            if (event.key !== 'Escape') return;
+            closeSidebar();
+            if (!$('download-list').hidden) { setDownloadMenu(false); $('download-btn').focus(); }
         });
         $('theme-btn').addEventListener('click', toggleTheme);
 

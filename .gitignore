@@ -43,3 +43,12 @@ data/
 # Logs
 *.log
 traceback_output.log
+
+# Virtual environments
+venv/
+.venv/
+
+# Local tooling and generated output
+.claude/
+evals/results.json
+error.txt

@@ -188,10 +188,27 @@
                                 <svg class="icon"><use href="#i-copy" /></svg>
                                 <span>Copy</span>
                             </button>
-                            <a class="btn btn-ghost" id="export-btn" href="#" download>
-                                <svg class="icon"><use href="#i-download" /></svg>
-                                <span>Export .md</span>
-                            </a>
+                            <div class="menu" id="download-menu">
+                                <button class="btn btn-primary" id="download-btn" type="button"
+                                    aria-haspopup="true" aria-expanded="false" aria-controls="download-list">
+                                    <svg class="icon"><use href="#i-download" /></svg>
+                                    <span>Download</span>
+                                </button>
+                                <div class="menu-list" id="download-list" hidden>
+                                    <button class="menu-item" id="dl-pdf" type="button">
+                                        <strong>PDF</strong>
+                                        <span>Opens the print dialog. Choose "Save as PDF".</span>
+                                    </button>
+                                    <a class="menu-item" id="dl-html" href="#" download>
+                                        <strong>HTML document</strong>
+                                        <span>Self-contained and print-ready. Opens in any browser.</span>
+                                    </a>
+                                    <a class="menu-item" id="dl-md" href="#" download>
+                                        <strong>Markdown</strong>
+                                        <span>Plain text for editors and notes.</span>
+                                    </a>
+                                </div>
+                            </div>
                             <button class="btn btn-ghost btn-danger" id="delete-btn" type="button">
                                 <svg class="icon"><use href="#i-trash" /></svg>
                                 <span>Delete</span>

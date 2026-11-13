@@ -12,15 +12,15 @@ async def test_e2e_mock():
         "agent_timings": {},
         "scratchpad": {},
     }
-    
+
     config = {"configurable": {"thread_id": "test_e2e"}}
-    
+
     # Run the graph
     final_state = await app_graph.ainvoke(initial_state, config)
-    
+
     assert "final_report" in final_state
     report = final_state["final_report"]
-    
+
     # Mock writer produces this title
     assert report["title"] == "Mock Research Report: Understanding X"
     assert len(report["sources"]) == 2

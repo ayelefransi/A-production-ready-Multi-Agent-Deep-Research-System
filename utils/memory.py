@@ -101,7 +101,7 @@ class SQLiteResearchMemory:
         with self._get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO runs 
+                INSERT OR REPLACE INTO runs
                 (query_hash, query, embedding, plan, final_report, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,

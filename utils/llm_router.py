@@ -10,16 +10,10 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Any, List, Optional, Type
+from typing import List, Optional, Type
 
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from config.settings import settings
 from utils.logger import logger

@@ -7,9 +7,8 @@ environment variables (via .env) for API keys / secrets.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
 from pydantic import Field

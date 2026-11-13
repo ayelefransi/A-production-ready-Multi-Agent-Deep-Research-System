@@ -18,6 +18,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from schemas.editor import QACheckResult
 from utils.llm_router import get_llm
 from utils.logger import logger
+from utils.report_quality import deterministic_warnings, measure_report
 
 
 @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=60))
@@ -80,6 +81,19 @@ async def editor_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         result: QACheckResult = await llm.ainvoke(prompt)
+
+        # The model judges prose quality; counts and completeness are measured.
+        measured = measure_report(final_report)
+        hard_failures = deterministic_warnings(measured)
+        result.word_count = measured["word_count"]
+        result.section_completeness = measured["section_completeness"]
+        result.citation_coverage = min(result.citation_coverage, measured["citation_coverage"])
+        if hard_failures:
+            result.passed = False
+            result.quality_warnings = hard_failures + [
+                w for w in result.quality_warnings if w not in hard_failures
+            ]
+
         duration = time.time() - start
 
         timings = dict(state.get("agent_timings", {}))
@@ -98,7 +112,7 @@ async def editor_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "editor_result": result.model_dump(),
             "agent_timings": timings,
             "messages": [
-                f"Editor QA: {'PASSED ✓' if result.passed else 'FAILED ✗'} "
+                f"Editor QA: {'passed' if result.passed else 'failed'} "
                 f"(citations: {result.citation_coverage:.0%}, words: {result.word_count})."
             ],
         }

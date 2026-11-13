@@ -62,6 +62,18 @@ class ResearchReport(BaseModel):
         default_factory=list,
         description="Areas requiring further research"
     )
+    recommendations: List[str] = Field(
+        default_factory=list,
+        description="3-5 actionable recommendations that follow from the findings"
+    )
+    confidence_level: str = Field(
+        default="",
+        description="Overall confidence in the report: 'high', 'moderate' or 'low'"
+    )
+    confidence_rationale: str = Field(
+        default="",
+        description="One or two sentences justifying the confidence level"
+    )
     sources: List[CitedSource] = Field(
         description="Numbered list of cited sources with full metadata"
     )

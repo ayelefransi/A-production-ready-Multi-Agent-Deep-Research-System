@@ -13,7 +13,7 @@ from typing import Any, Dict
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from schemas.researcher import SourceItem, SubQuestionResult
+from schemas.researcher import SubQuestionResult
 from utils.llm_router import get_llm
 from utils.logger import logger
 

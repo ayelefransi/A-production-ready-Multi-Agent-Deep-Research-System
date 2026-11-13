@@ -9,7 +9,7 @@ def setup_logger():
         stream=sys.stdout,
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
     )
-    
+
     structlog.configure(
         processors=[
             structlog.stdlib.filter_by_level,
@@ -27,7 +27,7 @@ def setup_logger():
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
-    
+
     return structlog.get_logger("deep_research")
 
 logger = setup_logger()
