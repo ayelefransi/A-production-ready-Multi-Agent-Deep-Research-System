@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 # Multi-Agent Deep Research System
+=======
+# Production-Ready Multi-Agent Deep Research System
+<img width="1468" height="726" alt="1" src="https://github.com/user-attachments/assets/ccfdcb0a-7088-4e85-bb3a-544804aecb90" />
+>>>>>>> e09b5a98844964e1dafc368e709e7433a009514b
 
 ## Overview
 
