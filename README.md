@@ -27,7 +27,8 @@ A single LLM call answers a research question from memory: it cannot show its so
 - **Live pipeline UI.** Server-Sent Events report the true start and finish of every agent, including each parallel Researcher.
 - **Downloads.** PDF (print-optimised layout via the browser print dialog), a self-contained HTML document, and Markdown.
 - **Human-in-the-loop (optional).** A checkpoint can pause the run for approval before analysis.
-- **Provider-agnostic LLM routing.** Each agent role maps to a primary provider and fallbacks (Groq, Gemini, OpenRouter).
+- **Provider-agnostic LLM routing.** Each agent role maps to a primary provider and fallbacks (Groq, Gemini, OpenRouter). Fallback also happens at call time: a rate limit or outage on one provider retries the same call on the next.
+- **No evidence, no report.** If the Researchers retrieve no sources the run stops with an explanation instead of writing from the model's memory.
 - **Offline mock mode.** Deterministic agent output and search results for tests, CI and UI demos, with a scripted scenario that exercises both loops.
 
 ## System Architecture
@@ -42,7 +43,7 @@ A modular monolith: one FastAPI process hosts the HTTP API, the static UI and th
 | Agents | `graph/nodes/` | One module per agent |
 | Quality guardrails | `utils/report_quality.py` | Evidence digest, citation grounding, measured QA |
 | Export | `utils/report_export.py` | Markdown and HTML report rendering |
-| Tools | `tools/` | Web search (Tavily, DuckDuckGo fallback), page fetch with SSRF guard |
+| Tools | `tools/` | Web search (Tavily, keyless multi-engine fallback), page fetch with SSRF guard |
 | LLM access | `utils/llm_router.py`, `utils/mock_llm.py` | Role-based provider selection, mock model |
 | Contracts | `schemas/` | Pydantic models for every agent's structured output |
 | Frontend | `templates/index.html`, `static/` | UI |
@@ -87,7 +88,7 @@ When `require_human_approval` is on, the graph pauses before the Collector (afte
 | API | FastAPI, Uvicorn, Starlette `StreamingResponse` (SSE) |
 | Validation | Pydantic v2, pydantic-settings |
 | LLM providers | Groq, Google Gemini, OpenRouter (via LangChain integrations) |
-| Search and fetch | Tavily, DuckDuckGo, httpx, trafilatura |
+| Search and fetch | Tavily, ddgs (keyless fallback), httpx, trafilatura |
 | Frontend | HTML, CSS, JavaScript (no build step, no libraries) |
 | Tests and lint | pytest, pytest-asyncio, ruff |
 | Packaging | Docker, Docker Compose, Vercel (`@vercel/python`) |
@@ -120,7 +121,7 @@ evals/                   Pipeline evaluation harness and cases
 
 - Python 3.11 or newer
 - An API key for at least one LLM provider (Groq, Gemini or OpenRouter). Not needed for mock mode.
-- Optional: a Tavily API key. Without it, search falls back to DuckDuckGo.
+- Strongly recommended: a Tavily API key. Without it, search falls back to public search engines through `ddgs`, which throttle automated traffic and often return nothing.
 - Optional: Docker
 
 ## Installation
@@ -145,7 +146,7 @@ Secrets are read from the environment or `.env`. Never commit `.env`.
 | `GROQ_API_KEY` | One LLM key is required | Groq (primary provider for every role by default) |
 | `GEMINI_API_KEY` | See above | Gemini (default fallback) |
 | `OPENROUTER_API_KEY` | See above | OpenRouter |
-| `TAVILY_API_KEY` | No | Tavily search; DuckDuckGo is used without it |
+| `TAVILY_API_KEY` | Recommended | Reliable web search. Without it a keyless fallback is used, which public engines frequently throttle |
 | `LANGSMITH_API_KEY` | No | LangSmith tracing when tracing is enabled |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | No | Langfuse tracing |
 | `MOCK_MODE` | No | `true` returns canned agent output and search results; no network calls |
@@ -217,12 +218,13 @@ pytest
 python evals/evaluator.py --mock
 ```
 
-The suite (62 tests) covers:
+The suite (73 tests) covers:
 
 - **Orchestration:** every agent runs once on the happy path; one Researcher per sub-question; source de-duplication; the replan loop, its cap and the evidence reset; the single writer retry; warnings attached after a second failure; one failing Researcher does not abort the run; routing functions.
 - **API:** the SSE event contract and ordering, replan and retry events, validation, history, export, delete, pagination bounds, rate limiting, error responses that do not leak internals, and the approve and reject paths of the human-approval flow.
 - **Guardrails:** removal of invalid citations, rebuilding sources from real evidence, measured QA overriding the model, the Editor's feedback reaching the Writer on retry, HTML export escaping.
 - **Tools:** the SSRF guard on page fetches and offline behaviour in mock mode.
+- **Live path (without network):** provider readiness, placeholder keys, call-time provider fallback, the keyless search engine chain, and the refusal to write a report with no sources.
 
 `evals/evaluator.py --mock` checks that all 22 cases produce a schema-valid report. Run without `--mock` (it uses your API quota) it also requires at least two sources and, for cases marked `replan`, that a replan happened. It measures whether the pipeline completes correctly, not the factual accuracy of the prose.
 
@@ -279,7 +281,8 @@ Known gaps:
 | Research stream stops on Vercel | The run exceeded the function's maximum duration. Use the Docker deployment |
 | History is empty after a restart | Expected: history is kept in memory |
 | `429 Too Many Requests` | The per-IP limit was reached. Wait for `Retry-After`, or raise `RATE_LIMIT_PER_MINUTE` |
-| Few or no sources | DuckDuckGo fallback can be throttled. Configure `TAVILY_API_KEY` |
+| `No sources could be retrieved` | The keyless search fallback was throttled. Configure `TAVILY_API_KEY`. The run stops on purpose: a report is never written without evidence |
+| `503 No LLM provider is configured` | No usable key in `.env` (placeholder values from `.env.example` do not count). Add a key and restart |
 
 ## Roadmap
 

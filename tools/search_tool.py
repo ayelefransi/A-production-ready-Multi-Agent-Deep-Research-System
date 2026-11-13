@@ -1,17 +1,21 @@
 """
-Web search tool with Tavily and DuckDuckGo fallback.
+Web search tool: Tavily when a key is configured, otherwise a keyless
+metasearch fallback (ddgs) that tries several engines in turn.
 """
 
 from __future__ import annotations
 
 import asyncio
 
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from tavily import AsyncTavilyClient
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.settings import settings
 from utils.logger import logger
+
+# Engines tried, in order, when no Tavily key is configured.
+KEYLESS_BACKENDS = ("bing", "duckduckgo", "auto")
 
 # Initialize client if key is provided
 _tavily_client = None
@@ -65,31 +69,38 @@ async def execute_search_async(
                 })
             return {"results": results, "provider": "tavily_search"}
         except Exception as e:
-            logger.warning("tavily_search_failed_falling_back_to_ddg", error=str(e))
-            # Fall through and let DuckDuckGo handle it
+            logger.warning("tavily_search_failed_falling_back_to_keyless", error=str(e))
 
     if not settings.duckduckgo_enabled:
         logger.error("search_failed_no_providers_available")
         return {"results": [], "provider": "none"}
 
-    logger.info("executing_search_with_ddg", query=query)
-    try:
-        def _ddg_search() -> list:
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, max_results=max_results))
+    logger.info("executing_keyless_search", query=query)
 
-        # DDGS is synchronous; keep it off the event loop so parallel
-        # researchers and the SSE stream are not blocked.
-        ddg_results = await asyncio.to_thread(_ddg_search)
-        results = [
-            {
-                "title": res.get("title", ""),
-                "url": res.get("href", ""),
-                "content": res.get("body", ""),
-            }
-            for res in ddg_results
-        ]
-        return {"results": results, "provider": "duckduckgo_search"}
-    except Exception as e:
-        logger.error("failed_ddg_search", error=str(e))
-        raise e  # Let tenacity retry if DDG fails
+    def _keyless_search() -> list:
+        # Public engines throttle automated traffic unpredictably, so try a
+        # few in turn. ddgs raises when an engine returns nothing.
+        for backend in KEYLESS_BACKENDS:
+            try:
+                found = list(DDGS(timeout=10).text(query, max_results=max_results, backend=backend))
+            except Exception as exc:  # noqa: BLE001 - try the next engine
+                logger.debug("keyless_search_backend_failed", backend=backend, error=str(exc))
+                continue
+            if found:
+                return found
+        return []
+
+    # ddgs is synchronous; keep it off the event loop so parallel researchers
+    # and the SSE stream are not blocked.
+    raw_results = await asyncio.to_thread(_keyless_search)
+    if not raw_results:
+        logger.warning("keyless_search_returned_nothing", query=query)
+    results = [
+        {
+            "title": res.get("title", ""),
+            "url": res.get("href", ""),
+            "content": res.get("body", ""),
+        }
+        for res in raw_results
+    ]
+    return {"results": results, "provider": "keyless_search"}

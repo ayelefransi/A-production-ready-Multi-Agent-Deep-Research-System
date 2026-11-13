@@ -13,15 +13,26 @@ import json
 import time
 from typing import Any, Dict
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from schemas.editor import QACheckResult
+from utils.errors import PipelineError
 from utils.llm_router import get_llm
 from utils.logger import logger
 from utils.report_quality import deterministic_warnings, measure_report
 
 
-@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=60))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=20),
+    retry=retry_if_not_exception_type(PipelineError),
+    reraise=True,
+)
 async def editor_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     QA gate: validate the final report for completeness and quality.

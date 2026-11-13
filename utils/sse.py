@@ -15,6 +15,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 
 from config.settings import settings
 from graph.build_graph import app_graph
+from utils.errors import PipelineError
 from utils.logger import logger
 from utils.mock_llm import mock_run_calls
 from utils.storage import research_store
@@ -216,6 +217,12 @@ async def stream_research_events(
 
         research_store.save(thread_id, query, "completed", report=report)
         yield sse_event("complete", {"thread_id": thread_id, "report": report})
+
+    except PipelineError as exc:
+        # Final, self-explanatory failures (no provider, no evidence).
+        logger.warning("stream_research_stopped", thread_id=thread_id, reason=exc.user_message)
+        research_store.save(thread_id, query, "failed")
+        yield sse_event("error", {"message": exc.user_message, "thread_id": thread_id})
 
     except Exception:
         # Details are logged; the client gets a reference it can quote.

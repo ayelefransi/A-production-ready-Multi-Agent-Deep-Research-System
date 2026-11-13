@@ -10,14 +10,25 @@ from __future__ import annotations
 import time
 from typing import Any, Dict
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_not_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from schemas.planner import ResearchPlan
+from utils.errors import PipelineError
 from utils.llm_router import get_llm
 from utils.logger import logger
 
 
-@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=60))
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=20),
+    retry=retry_if_not_exception_type(PipelineError),
+    reraise=True,
+)
 async def planner_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     Decomposes a complex user query into 3-7 targeted sub-questions

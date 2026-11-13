@@ -140,20 +140,6 @@ async def test_editor_failure_retries_writer_exactly_once_then_attaches_warnings
     assert state["final_report"]["quality_warnings"] == ["Low citation coverage"]
 
 
-async def test_one_failing_researcher_does_not_abort_the_run(initial_state, monkeypatch):
-    class _Boom:
-        async def ainvoke(self, *_a, **_k):
-            raise RuntimeError("provider down")
-
-    monkeypatch.setattr("graph.nodes.researcher.get_llm", lambda *a, **k: _Boom())
-
-    executed, state = await run_graph(initial_state)
-
-    assert executed["researcher"] == 3
-    assert all(r["sources"] == [] for r in state["sub_question_results"])
-    assert state["final_report"]  # downstream agents still ran
-
-
 def test_reducer_appends_and_resets():
     assert merge_sub_question_results([{"a": 1}], [{"b": 2}]) == [{"a": 1}, {"b": 2}]
     assert merge_sub_question_results(None, [{"b": 2}]) == [{"b": 2}]

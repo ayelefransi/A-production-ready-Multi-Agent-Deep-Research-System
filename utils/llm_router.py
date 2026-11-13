@@ -3,20 +3,57 @@ Provider-agnostic LLM router with role-based provider fallback.
 
 Usage:
     from utils.llm_router import get_llm
-    llm = get_llm("planner")                              # plain chat model
+    llm = get_llm("planner")                                  # plain chat model
     llm = get_llm("planner", structured_output=ResearchPlan)  # with Pydantic output
+
+Fallback happens at two levels:
+
+* configuration: a provider without a usable API key is skipped;
+* runtime: if the chosen provider fails a call (rate limit, outage, a
+  structured-output parse error), the same call is retried on the next
+  configured provider via LangChain's ``with_fallbacks``.
 """
 
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Type
+import re
+from typing import Any, List, Optional, Type
 
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
 
 from config.settings import settings
+from utils.errors import LLMUnavailableError
 from utils.logger import logger
+
+# Values copied from .env.example ("your_groq_api_key_here") are not keys.
+_PLACEHOLDER_KEY = re.compile(r"^(your[_-].*|.*[_-]here|changeme|x{3,}|<.*>)$", re.IGNORECASE)
+
+NO_PROVIDER_MESSAGE = (
+    "No LLM provider is configured. Add GROQ_API_KEY, GEMINI_API_KEY or "
+    "OPENROUTER_API_KEY to the .env file and restart the server."
+)
+
+
+def _api_key_for(provider_name: str) -> str:
+    """Resolve a provider's API key from the environment or settings ('' if unset)."""
+    api_key_env = settings.llm_providers.get(provider_name, {}).get("api_key_env", "")
+    if not api_key_env:
+        return ""
+    api_key = os.environ.get(api_key_env, "") or getattr(settings, api_key_env.lower(), "")
+    api_key = (api_key or "").strip()
+    return "" if _PLACEHOLDER_KEY.match(api_key) else api_key
+
+
+def available_providers() -> List[str]:
+    """Names of configured providers that have a usable API key."""
+    return [name for name in settings.llm_providers if _api_key_for(name)]
+
+
+def llm_ready() -> bool:
+    """True when a research run can reach at least one model."""
+    return settings.mock_mode or bool(available_providers())
 
 
 # ---------------------------------------------------------------------------
@@ -30,33 +67,24 @@ def _build_provider(provider_name: str, temperature: float) -> BaseChatModel:
     """
     provider_cfg = settings.llm_providers.get(provider_name, {})
     model_name = provider_cfg.get("model", "")
-    api_key_env = provider_cfg.get("api_key_env", "")
-
-    # Resolve API key from env / settings
-    api_key = os.environ.get(api_key_env, "")
-    if not api_key:
-        # Try the settings attribute directly (e.g. settings.gemini_api_key)
-        attr = api_key_env.lower()
-        api_key = getattr(settings, attr, "")
+    api_key = _api_key_for(provider_name)
 
     if not api_key:
         raise ValueError(
             f"No API key found for provider '{provider_name}' "
-            f"(expected env var '{api_key_env}')"
+            f"(expected env var '{provider_cfg.get('api_key_env', '')}')"
         )
 
     if provider_name == "gemini":
-        # Set the env var that langchain-google-genai expects
-        os.environ["GOOGLE_API_KEY"] = api_key
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
             model=model_name,
             temperature=temperature,
+            google_api_key=api_key,
         )
 
     if provider_name == "groq":
-        os.environ["GROQ_API_KEY"] = api_key
         from langchain_groq import ChatGroq
 
         return ChatGroq(
@@ -85,88 +113,54 @@ def _build_provider(provider_name: str, temperature: float) -> BaseChatModel:
 def get_llm(
     role: str,
     structured_output: Optional[Type[BaseModel]] = None,
-) -> BaseChatModel:
+) -> Any:
     """
-    Return a configured LangChain chat model for the given agent *role*.
+    Return a runnable model for the given agent *role*.
 
     When ``settings.mock_mode`` is ``True``, returns a deterministic
-    ``MockChatModel`` that produces valid structured output.
+    ``MockChatModel`` (tests, CI, UI demos). Otherwise returns the role's
+    primary provider with the remaining configured providers as runtime
+    fallbacks.
 
-    Parameters
-    ----------
-    role : str
-        One of the role keys defined in ``settings.yaml`` → ``llm.roles``
-        (e.g. ``"planner"``, ``"researcher"``, ``"critic"``).
-    structured_output : Type[BaseModel], optional
-        If provided, wraps the model via ``.with_structured_output()``.
+    Raises ``LLMUnavailableError`` when no provider has a usable key.
     """
-
-    # ── Mock mode (tests / CI) ────────────────────────────────────────────
     if settings.mock_mode:
         from utils.mock_llm import MockChatModel
 
         mock = MockChatModel(role=role)
-        logger.info(
-            "llm_router_mock",
-            role=role,
-            provider="mock",
-            model="mock",
-        )
+        logger.info("llm_router_mock", role=role, provider="mock", model="mock")
         if structured_output is not None:
             return mock.with_structured_output(structured_output)
         return mock
 
-    # ── Real provider chain ───────────────────────────────────────────────
     role_cfg = settings.llm_roles.get(role, {})
-    primary = role_cfg.get("primary", "gemini")
-    fallbacks: List[str] = role_cfg.get("fallback", [])
+    chain: List[str] = [role_cfg.get("primary", "gemini")] + list(role_cfg.get("fallback", []))
     temperature = role_cfg.get("temperature", 0.2)
 
-    providers_to_try = [primary] + fallbacks
-
-    last_error: Optional[Exception] = None
-
-    for provider_name in providers_to_try:
+    runnables = []
+    selected: List[str] = []
+    for provider_name in dict.fromkeys(chain):  # de-duplicate, keep order
         try:
             llm = _build_provider(provider_name, temperature)
-            logger.info(
-                "llm_router_selected",
-                role=role,
-                provider=provider_name,
-                model=settings.llm_providers.get(provider_name, {}).get("model", "?"),
-            )
-            if structured_output is not None:
-                return llm.with_structured_output(structured_output)
-            return llm
         except ValueError as exc:
-            # Missing API key → skip to fallback
             logger.warning(
-                "llm_router_provider_skipped",
-                role=role,
-                provider=provider_name,
-                reason=str(exc),
+                "llm_router_provider_skipped", role=role, provider=provider_name, reason=str(exc)
             )
-            last_error = exc
             continue
+        runnables.append(
+            llm.with_structured_output(structured_output) if structured_output is not None else llm
+        )
+        selected.append(provider_name)
 
-    raise RuntimeError(
-        f"No LLM provider available for role '{role}'. "
-        f"Tried: {providers_to_try}. Last error: {last_error}"
+    if not runnables:
+        raise LLMUnavailableError(NO_PROVIDER_MESSAGE)
+
+    logger.info(
+        "llm_router_selected",
+        role=role,
+        provider=selected[0],
+        model=settings.llm_providers.get(selected[0], {}).get("model", "?"),
+        runtime_fallbacks=selected[1:],
     )
-
-
-def get_llm_with_retry(
-    role: str,
-    structured_output: Optional[Type[BaseModel]] = None,
-    max_attempts: int = 3,
-) -> BaseChatModel:
-    """
-    Same as ``get_llm`` but wraps the *invocation* in a Tenacity retry that
-    will try fallback providers on rate-limit / server errors.
-
-    This is useful when you want automatic retry-with-fallback at call time,
-    not just at initialization time.
-    """
-    # For now, delegation — real per-call retry is handled inside the nodes
-    # via their own Tenacity decorators.
-    return get_llm(role, structured_output)
+    primary, fallbacks = runnables[0], runnables[1:]
+    return primary.with_fallbacks(fallbacks) if fallbacks else primary

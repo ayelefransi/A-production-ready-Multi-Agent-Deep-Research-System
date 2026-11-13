@@ -1124,8 +1124,12 @@
             if (!response.ok) throw new Error('unhealthy');
             const body = await response.json();
             const config = body.config || {};
-            status.dataset.state = 'online';
-            text.textContent = `Online, v${body.version}`;
+            const ready = config.llm_ready !== false;
+            status.dataset.state = ready ? 'online' : 'setup';
+            text.textContent = ready
+                ? `Online, ${config.mock_mode ? 'mock agents' : (config.llm_providers || []).join(' + ') || 'live'}`
+                : 'Setup needed: no LLM key';
+            $('setup-note').hidden = ready;
             $('mode-badge').hidden = !config.mock_mode;
             if (config.max_query_length) {
                 maxQueryLength = config.max_query_length;

@@ -206,6 +206,7 @@ kbd {
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
 .status[data-state='online'] .status-dot { background: var(--good); }
 .status[data-state='offline'] .status-dot { background: var(--bad); }
+.status[data-state='setup'] .status-dot { background: var(--warn); }
 
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(10, 11, 14, .5); animation: fade var(--base) var(--ease-out); }
 
@@ -236,6 +237,12 @@ kbd {
 }
 .view-home h1 em { font-style: italic; color: var(--accent); }
 .lede { margin-top: var(--s4); max-width: 38rem; font-size: 1.0625rem; color: var(--ink-2); }
+
+.setup-note {
+    margin-top: var(--s5); padding: var(--s4); border-radius: var(--radius);
+    background: var(--warn-soft); color: var(--ink); font-size: .9375rem;
+}
+.setup-note strong { color: var(--warn); }
 
 .ask {
     margin-top: var(--s6); background: var(--surface); border: 1px solid var(--line-strong);

@@ -25,6 +25,12 @@ from pydantic import BaseModel, Field, field_validator  # noqa: E402
 from utils.sse import sse_event, stream_research_events  # noqa: E402
 from config.settings import settings  # noqa: E402
 from graph.build_graph import app_graph  # noqa: E402
+from utils.errors import PipelineError  # noqa: E402
+from utils.llm_router import (  # noqa: E402
+    NO_PROVIDER_MESSAGE,
+    available_providers,
+    llm_ready,
+)
 from utils.logger import logger  # noqa: E402
 from utils.report_export import report_to_html, report_to_markdown  # noqa: E402
 from utils.storage import research_store  # noqa: E402
@@ -118,6 +124,12 @@ def enforce_rate_limit(request: Request) -> None:
     window.append(now)
 
 
+def require_llm() -> None:
+    """Fail fast with a clear message instead of starting a run that cannot work."""
+    if not llm_ready():
+        raise HTTPException(status_code=503, detail=NO_PROVIDER_MESSAGE)
+
+
 def _initial_state(query: str) -> Dict[str, Any]:
     return {
         "query": query,
@@ -158,6 +170,7 @@ async def home(request: Request):
 @app.post("/research")
 async def start_research(body: ResearchRequest, request: Request):
     """Run the full pipeline and return the report (or a pending approval)."""
+    require_llm()
     enforce_rate_limit(request)
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
@@ -167,6 +180,9 @@ async def start_research(body: ResearchRequest, request: Request):
     try:
         state = await app_graph.ainvoke(_initial_state(body.query), config)
         current_state = app_graph.get_state(config)
+    except PipelineError as exc:
+        research_store.save(thread_id, body.query, "failed")
+        raise HTTPException(status_code=502, detail=exc.user_message)
     except Exception:
         logger.exception("research_workflow_failed", thread_id=thread_id)
         research_store.save(thread_id, body.query, "failed")
@@ -202,6 +218,7 @@ async def start_research_stream(body: ResearchRequest, request: Request):
     """
     if not settings.enable_streaming:
         raise HTTPException(status_code=400, detail="Streaming is disabled in settings.")
+    require_llm()
     enforce_rate_limit(request)
 
     thread_id = str(uuid.uuid4())
@@ -345,6 +362,9 @@ def health_check():
             "human_approval": settings.require_human_approval,
             "streaming_enabled": settings.enable_streaming,
             "mock_mode": settings.mock_mode,
+            "llm_ready": llm_ready(),
+            "llm_providers": available_providers(),
+            "search_provider": "tavily" if settings.tavily_api_key else "keyless",
             "max_query_length": settings.max_query_length,
         },
     }

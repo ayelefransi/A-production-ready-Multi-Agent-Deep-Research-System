@@ -94,6 +94,12 @@
                         and a critic can send the whole thing back before a word of the report is written.
                         You watch every step.</p>
 
+                    <p class="setup-note" id="setup-note" role="status" hidden>
+                        <strong>Setup needed.</strong> No LLM API key is configured, so research runs
+                        cannot start. Add <code>GROQ_API_KEY</code>, <code>GEMINI_API_KEY</code> or
+                        <code>OPENROUTER_API_KEY</code> to the <code>.env</code> file and restart the server.
+                    </p>
+
                     <form class="ask" id="research-form" novalidate>
                         <label class="sr-only" for="query-input">Research question</label>
                         <textarea id="query-input" rows="2" maxlength="500" required
