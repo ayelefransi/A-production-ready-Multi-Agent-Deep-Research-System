@@ -1,6 +1,6 @@
 # Multi-Agent Deep Research System
 <img width="1468" height="726" alt="1" src="https://github.com/user-attachments/assets/260a6b25-c5b6-47ac-babe-5eb9a9c356a8" />
-
+Link: https://deepagentlab.vercel.app
 ## Overview
 
 A multi-user research assistant. Each signed-in user can start research runs in which seven cooperating agents turn a question into a cited report: a Planner splits the question into sub-questions, one Researcher per sub-question searches the web in parallel, an Analyst synthesises the evidence, a Critic verifies claims and can send the run back for replanning, a Writer drafts the report and an Editor gates it on quality.
