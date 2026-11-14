@@ -62,6 +62,7 @@ def test_placeholder_keys_from_env_example_are_not_keys(live):
 def test_a_real_looking_key_makes_the_provider_available(live):
     live.setenv("GEMINI_API_KEY", "AIzaSyTestKeyNotReal123456")
     assert router.available_providers() == ["gemini"]
+    assert router.available_services() == ["gemini"]
     assert router.llm_ready() is True
 
 
@@ -74,16 +75,19 @@ async def test_runtime_failure_falls_back_to_the_next_provider(live):
     def rate_limited():
         raise RuntimeError("429 rate limit exceeded")
 
-    behaviours = {"groq": rate_limited, "gemini": lambda: plan}
-    live.setattr(
-        router, "_build_provider",
-        lambda name, _temperature: _FakeProvider(name, behaviours[name], calls),
-    )
+    behaviours = {"groq_fast": rate_limited, "groq": rate_limited, "gemini": lambda: plan}
+
+    def build(name, _temperature, _max_retries=0):
+        if not router._api_key_for(name):  # same contract as the real factory
+            raise ValueError(f"No API key found for provider '{name}'")
+        return _FakeProvider(name, behaviours[name], calls)
+
+    live.setattr(router, "_build_provider", build)
 
     result = await router.get_llm("planner", structured_output=ResearchPlan).ainvoke("prompt")
 
     assert result == plan
-    assert calls == ["groq", "gemini"]  # primary tried first, then the fallback
+    assert calls == ["groq_fast", "groq", "gemini"]  # primary first, then each fallback
 
 
 async def test_single_provider_is_used_without_a_fallback_chain(live):
@@ -91,7 +95,7 @@ async def test_single_provider_is_used_without_a_fallback_chain(live):
     calls = []
     plan = ResearchPlan(**_MOCK_RESPONSES["planner"])
 
-    def build(name, _temperature):
+    def build(name, _temperature, _max_retries=0):
         if not router._api_key_for(name):  # same contract as the real factory
             raise ValueError(f"No API key found for provider '{name}'")
         return _FakeProvider(name, lambda: plan, calls)
@@ -99,22 +103,6 @@ async def test_single_provider_is_used_without_a_fallback_chain(live):
     live.setattr(router, "_build_provider", build)
     assert await router.get_llm("planner", structured_output=ResearchPlan).ainvoke("p") == plan
     assert calls == ["gemini"]  # groq (primary) has no key and is skipped
-
-
-def test_api_refuses_to_start_a_run_without_a_provider(client, live):
-    for path in ("/research", "/research/stream"):
-        response = client.post(path, json={"query": "What is X?"})
-        assert response.status_code == 503
-        assert "GROQ_API_KEY" in response.json()["detail"]
-    assert client.get("/research/history").json()["total"] == 0  # nothing was started
-
-    config = client.get("/health").json()["config"]
-    assert config["llm_ready"] is False and config["llm_providers"] == []
-
-
-def test_health_reports_ready_in_mock_mode(client):
-    config = client.get("/health").json()["config"]
-    assert config["llm_ready"] is True and config["mock_mode"] is True
 
 
 class _FakeDDGS:
@@ -127,7 +115,7 @@ class _FakeDDGS:
 
     def text(self, query, max_results, backend):
         _FakeDDGS.tried.append(backend)
-        if backend == "bing":
+        if backend == "auto":
             raise RuntimeError("No results found.")
         return [{"title": "T", "href": "https://example.org/a", "body": f"about {query}"}]
 
@@ -140,7 +128,7 @@ async def test_keyless_search_tries_the_next_engine(live):
     # Call the undecorated function so a failure is not retried for seconds.
     result = await search_tool.execute_search_async.__wrapped__("coffee", max_results=3)
 
-    assert _FakeDDGS.tried == ["bing", "duckduckgo"]
+    assert _FakeDDGS.tried == ["auto", "duckduckgo"]
     assert result["provider"] == "keyless_search"
     assert result["results"] == [
         {"title": "T", "url": "https://example.org/a", "content": "about coffee"}
@@ -197,12 +185,58 @@ async def test_one_failing_researcher_does_not_abort_the_run(initial_state, monk
     assert state["final_report"]["sources"]
 
 
-def test_stream_shows_the_no_evidence_message_to_the_client(client, monkeypatch):
-    import json
+@pytest.mark.parametrize("pasted", [
+    "https://abc.supabase.co",
+    "https://abc.supabase.co/",
+    "https://abc.supabase.co/rest/v1",
+    "https://abc.supabase.co/rest/v1/",
+    " https://abc.supabase.co/auth/v1 ",
+])
+def test_supabase_url_tolerates_a_pasted_api_path(monkeypatch, pasted):
+    from utils.supabase import project_url
 
-    monkeypatch.setattr("graph.nodes.researcher.get_llm", lambda *a, **k: _Boom())
-    with client.stream("POST", "/research/stream", json={"query": "What is X?"}) as response:
-        lines = [line for line in response.iter_lines() if line.startswith("data: ")]
-    last = json.loads(lines[-1][6:])
-    assert "No sources could be retrieved" in last["message"]
-    assert client.get(f"/research/{last['thread_id']}").json()["status"] == "failed"
+    monkeypatch.setattr(settings, "supabase_url", pasted)
+    assert project_url() == "https://abc.supabase.co"
+
+
+def test_key_problems_name_the_wrong_keys_without_revealing_them(live):
+    from utils.config_check import clean_key, key_problems
+
+    live.setattr(settings, "groq_api_key", "definitely-not-a-groq-key-0123456789abcdef")
+    live.setattr(settings, "tavily_api_key", "...")
+    live.setattr(settings, "supabase_anon_key", "sb_secret_same_value_1234567890")
+    live.setattr(settings, "supabase_service_role_key", "sb_secret_same_value_1234567890")
+
+    problems = " | ".join(key_problems())
+    assert "GROQ_API_KEY does not look like a valid key" in problems
+    assert "TAVILY_API_KEY is a placeholder" in problems
+    assert "SUPABASE_ANON_KEY does not look like" in problems
+    assert "same value" in problems
+    assert "0123456789abcdef" not in problems  # values are never echoed
+    assert clean_key("...") == "" and clean_key(" 'gsk_realistic_key_value' ") == "gsk_realistic_key_value"
+
+
+def test_correctly_formatted_keys_raise_no_problems(live):
+    from utils.config_check import key_problems
+
+    live.setattr(settings, "groq_api_key", "gsk_" + "a" * 52)
+    live.setattr(settings, "tavily_api_key", "tvly-" + "b" * 30)
+    live.setattr(settings, "supabase_anon_key", "sb_publishable_" + "c" * 31)
+    live.setattr(settings, "supabase_service_role_key", "sb_secret_" + "d" * 31)
+    assert key_problems() == []
+
+
+@pytest.mark.parametrize("error, expected", [
+    ("Error code: 404 - {'error': {'message': 'The model `x` does not exist', 'code': 'model_not_found'}}",
+     "no longer offers the configured model"),
+    ("Error code: 401 - {'error': {'message': 'Invalid API Key'}}", "rejected its API key"),
+    ("429 RESOURCE_EXHAUSTED. You exceeded your current quota", "rate limited or out of quota"),
+    ("503 UNAVAILABLE. This model is currently experiencing high demand", "temporarily unavailable"),
+    ("something nobody anticipated", ""),
+])
+def test_provider_failures_are_explained_without_echoing_provider_text(error, expected):
+    from utils.errors import describe_failure
+
+    message = describe_failure(RuntimeError(error))
+    assert expected in message
+    assert "Error code" not in message and "{" not in message

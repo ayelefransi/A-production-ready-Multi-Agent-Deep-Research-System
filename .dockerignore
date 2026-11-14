@@ -18,3 +18,5 @@ __pycache__/
 *.log
 error.txt
 *.png
+scripts/
+supabase/

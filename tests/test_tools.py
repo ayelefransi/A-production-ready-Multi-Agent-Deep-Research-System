@@ -1,11 +1,10 @@
-"""Tool tests: SSRF guard on web fetch, offline behaviour in mock mode, store cap."""
+"""Tool tests: SSRF guard on web fetch, offline behaviour in mock mode."""
 
 import pytest
 
 from config.settings import settings
 from tools.search_tool import execute_search_async
 from tools.web_fetch import UnsafeURLError, validate_public_url, web_fetch_async
-from utils.storage import ResearchStore
 
 
 @pytest.mark.parametrize(
@@ -42,11 +41,3 @@ async def test_mock_mode_search_is_offline_and_deterministic():
     second = await execute_search_async("anything")
     assert first == second
     assert first["provider"] == "mock_search" and len(first["results"]) == 2
-
-
-def test_store_evicts_oldest_sessions_beyond_cap():
-    store = ResearchStore(max_sessions=2)
-    for name in ("a", "b", "c"):
-        store.save(name, f"query {name}", "completed")
-    assert store.count() == 2
-    assert store.get("a") is None and store.get("c") is not None

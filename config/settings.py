@@ -43,6 +43,7 @@ _tracing = _yaml_cfg.get("tracing", {})
 _logging = _yaml_cfg.get("logging", {})
 _api = _yaml_cfg.get("api", {})
 _embeddings = _yaml_cfg.get("embeddings", {})
+_runs = _yaml_cfg.get("runs", {})
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,15 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_public_key: str = ""
+
+    # --- Supabase (auth + database; secrets — env only) ---
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
+    # Comma-separated emails that are promoted to admin when they sign in.
+    admin_emails: str = ""
+    # Public URL of this app; used as the redirect target in auth emails.
+    site_url: str = ""
 
     # --- LLM ---
     model_name: str = Field(
@@ -121,7 +131,14 @@ class Settings(BaseSettings):
     api_version: str = Field(default=_api.get("version", "3.0.0"))
     max_query_length: int = Field(default=_api.get("max_query_length", 500), ge=10)
     rate_limit_per_minute: int = Field(default=_api.get("rate_limit_per_minute", 10), ge=0)
-    max_stored_sessions: int = Field(default=_api.get("max_stored_sessions", 200), ge=1)
+    auth_rate_limit_per_minute: int = Field(default=_api.get("auth_rate_limit_per_minute", 10), ge=0)
+
+    # --- Background runs ---
+    run_timeout_seconds: int = Field(default=_runs.get("timeout_seconds", 900), ge=30)
+    llm_timeout_seconds: int = Field(default=_runs.get("llm_timeout_seconds", 90), ge=5)
+    max_concurrent_runs: int = Field(default=_runs.get("max_concurrent", 4), ge=1)
+    max_active_runs_per_user: int = Field(default=_runs.get("max_active_per_user", 3), ge=1)
+    approval_timeout_seconds: int = Field(default=_runs.get("approval_timeout_seconds", 600), ge=10)
 
     model_config = SettingsConfigDict(
         env_file=str(_PROJECT_ROOT / ".env"),

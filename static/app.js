@@ -1,14 +1,16 @@
 /* ==========================================================================
    DeepAgent Lab - frontend
    No third-party scripts. Every piece of server or model text is inserted
-   with textContent / DOM nodes, never innerHTML.
+   with textContent / DOM nodes, never innerHTML. The session lives in
+   HttpOnly cookies, so this script never sees a token (except the one-time
+   tokens in an email link, which it hands to the server and discards).
    ========================================================================== */
 
 (function () {
     'use strict';
 
     // ----------------------------------------------------------------------
-    // Pipeline definition (single source for the home explainer and the rail)
+    // Pipeline definition (single source for the explainer and the rail)
     // ----------------------------------------------------------------------
     const AGENTS = [
         { id: 'planner', name: 'Planner', role: 'Splits the question into focused sub-questions.' },
@@ -20,12 +22,18 @@
         { id: 'editor', name: 'Editor', role: 'QA gate: citations, completeness, structure.' },
     ];
     const AGENT_NAME = Object.fromEntries(AGENTS.map(a => [a.id, a.name]));
+    const ACTIVE = ['queued', 'running', 'awaiting_approval'];
+    const STATUS_LABEL = {
+        queued: 'Queued', running: 'Running', awaiting_approval: 'Needs approval',
+        completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled',
+    };
+    const DEFAULT_TITLE = 'DeepAgent Lab - Multi-Agent Research';
 
     const $ = id => document.getElementById(id);
     const SVG_NS = 'http://www.w3.org/2000/svg';
 
     // ----------------------------------------------------------------------
-    // Small DOM helpers
+    // DOM helpers
     // ----------------------------------------------------------------------
     function el(tag, className, text) {
         const node = document.createElement(tag);
@@ -44,6 +52,13 @@
         return svg;
     }
 
+    function button(label, className, onClick) {
+        const node = el('button', className || 'btn btn-ghost btn-sm', label);
+        node.type = 'button';
+        node.addEventListener('click', onClick);
+        return node;
+    }
+
     function clear(node) {
         while (node.firstChild) node.removeChild(node.firstChild);
     }
@@ -53,6 +68,7 @@
     const percent = v => `${Math.round((Number(v) || 0) * 100)}%`;
 
     function formatDuration(ms) {
+        if (!Number.isFinite(ms) || ms < 0) return '';
         if (ms < 1000) return `${Math.round(ms)}ms`;
         const seconds = ms / 1000;
         if (seconds < 60) return `${seconds.toFixed(1)}s`;
@@ -69,6 +85,12 @@
         if (hours < 24) return `${hours}h ago`;
         const days = Math.floor(hours / 24);
         return days < 7 ? `${days}d ago` : then.toLocaleDateString();
+    }
+
+    function formatDate(iso) {
+        const date = iso ? new Date(iso) : new Date();
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
     }
 
     /** Only http(s) links are ever made clickable. */
@@ -91,7 +113,6 @@
         return a;
     }
 
-    /** A 0..1 meter. Tone is derived from the value unless given. */
     function meter(value, label) {
         const v = Math.max(0, Math.min(1, Number(value) || 0));
         const wrap = el('div', 'meter');
@@ -102,7 +123,6 @@
         track.appendChild(fill);
         wrap.appendChild(track);
         wrap.appendChild(el('span', 'meter-value', percent(v)));
-        // Set after insertion so the bar animates from zero.
         requestAnimationFrame(() => fill.style.setProperty('--v', String(v)));
         return wrap;
     }
@@ -114,8 +134,7 @@
     }
 
     // ----------------------------------------------------------------------
-    // Safe, minimal Markdown -> DOM (headings, lists, bold/italic/code, links,
-    // and [n] citations that jump to the matching source).
+    // Safe, minimal Markdown -> DOM
     // ----------------------------------------------------------------------
     const INLINE = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\[(\d{1,3})\])/g;
 
@@ -145,20 +164,17 @@
         const root = el('div', 'prose');
         let list = null;
         let paragraph = [];
-
         const flushParagraph = () => {
             if (paragraph.length) {
                 root.appendChild(renderInline(paragraph.join(' '), el('p')));
                 paragraph = [];
             }
         };
-
         String(text || '').split(/\r?\n/).forEach(rawLine => {
             const line = rawLine.trim();
             const heading = /^(#{1,4})\s+(.*)$/.exec(line);
             const bullet = /^[-*•]\s+(.*)$/.exec(line);
             const numbered = /^\d+[.)]\s+(.*)$/.exec(line);
-
             if (!line) { flushParagraph(); list = null; return; }
             if (heading) {
                 flushParagraph(); list = null;
@@ -183,39 +199,259 @@
     }
 
     // ----------------------------------------------------------------------
-    // Elements
+    // State
     // ----------------------------------------------------------------------
     const views = {
-        home: $('view-home'), run: $('view-run'), report: $('view-report'), error: $('view-error'),
+        dashboard: $('view-dashboard'), new: $('view-new'), run: $('view-run'),
+        report: $('view-report'), users: $('view-users'), error: $('view-error'),
     };
-    const form = $('research-form');
     const input = $('query-input');
-    const submitBtn = $('submit-btn');
-    const counter = $('query-counter');
-    const queryError = $('query-error');
     const rail = $('rail');
     const logList = $('log');
     const loops = $('loops');
-    const approval = $('approval');
     const sidebar = $('sidebar');
-    const scrim = $('scrim');
-    const menuBtn = $('menu-btn');
-    const historyList = $('history-list');
     const toast = $('toast');
-    const deleteDialog = $('delete-dialog');
+    const confirmDialog = $('confirm-dialog');
 
-    // ----------------------------------------------------------------------
-    // State
-    // ----------------------------------------------------------------------
+    let user = null;              // signed-in user, or null
     let maxQueryLength = 500;
-    let run = null;            // the in-flight run, or null
-    let currentReport = null;  // { threadId, report } shown in the report view
-    let lastQuery = '';
+    let runs = [];                // dashboard cache
+    let runFilter = 'all';
+    let watch = null;             // the run currently open in the run view
+    let currentReport = null;     // { run } shown in the report view
+    let resetToken = null;        // one-time token from a password-recovery link
+    let pollTimer = null;
     let clockTimer = null;
     let toastTimer = null;
+    let confirmAction = null;
 
     // ----------------------------------------------------------------------
-    // Views
+    // API
+    // ----------------------------------------------------------------------
+    class ApiError extends Error {
+        constructor(status, message) { super(message); this.status = status; }
+    }
+
+    async function errorMessage(response) {
+        let detail = '';
+        try {
+            const body = await response.json();
+            if (typeof body.detail === 'string') detail = body.detail;
+            else if (Array.isArray(body.detail) && body.detail[0]) {
+                detail = String(body.detail[0].msg || '').replace(/^Value error, /, '');
+            }
+        } catch (e) { /* not JSON */ }
+        return detail || `The server returned an error (HTTP ${response.status}).`;
+    }
+
+    async function api(path, options) {
+        const init = { credentials: 'same-origin', ...(options || {}) };
+        if (init.body !== undefined && typeof init.body !== 'string') {
+            init.body = JSON.stringify(init.body);
+            init.headers = { 'Content-Type': 'application/json', ...(init.headers || {}) };
+        }
+        let response;
+        try {
+            response = await fetch(path, init);
+        } catch (e) {
+            if (e.name === 'AbortError') throw e;
+            throw new ApiError(0, 'The server is unreachable. Check your connection.');
+        }
+        if (response.status === 401 && user && !path.startsWith('/auth/')) {
+            signedOut('Your session has ended. Sign in again.');
+            throw new ApiError(401, 'Session ended.');
+        }
+        if (!response.ok) throw new ApiError(response.status, await errorMessage(response));
+        return init.raw ? response : response.json();
+    }
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('is-visible');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 3200);
+    }
+
+    function confirmDanger(title, text, okLabel, action) {
+        $('confirm-title').textContent = title;
+        $('confirm-text').textContent = text;
+        $('confirm-ok').textContent = okLabel;
+        confirmAction = action;
+        confirmDialog.showModal();
+    }
+
+    // ----------------------------------------------------------------------
+    // Authentication screen
+    // ----------------------------------------------------------------------
+    const AUTH_MODES = {
+        login: { form: 'login-form', title: 'Sign in', lede: 'Research with seven agents and a cited report at the end.' },
+        register: { form: 'register-form', title: 'Create your account', lede: 'Your research and reports are saved to your account.' },
+        forgot: { form: 'forgot-form', title: 'Reset your password', lede: 'Enter your email and we will send a reset link.' },
+        reset: { form: 'reset-form', title: 'Choose a new password', lede: 'Set a new password for your account.' },
+    };
+
+    function setAuthMode(mode, notice) {
+        Object.entries(AUTH_MODES).forEach(([name, config]) => { $(config.form).hidden = name !== mode; });
+        $('auth-title').textContent = AUTH_MODES[mode].title;
+        $('auth-lede').textContent = AUTH_MODES[mode].lede;
+        setAuthMessage('auth-error', '');
+        setAuthMessage('auth-notice', notice || '');
+        const first = $(AUTH_MODES[mode].form).querySelector('input');
+        if (first) first.focus();
+    }
+
+    function setAuthMessage(id, message) {
+        $(id).textContent = message;
+        $(id).hidden = !message;
+    }
+
+    function signedOut(notice) {
+        user = null;
+        stopWatching();
+        clearInterval(pollTimer);
+        pollTimer = null;
+        runs = [];
+        currentReport = null;
+        $('app').hidden = true;
+        $('boot').hidden = true;
+        $('auth').hidden = false;
+        document.title = DEFAULT_TITLE;
+        setAuthMode(resetToken ? 'reset' : 'login', notice);
+    }
+
+    function signedIn(account) {
+        user = account;
+        resetToken = null;
+        $('auth').hidden = true;
+        $('boot').hidden = true;
+        $('app').hidden = false;
+        $('account-name').textContent = account.full_name || account.email;
+        $('account-email').textContent = account.full_name ? account.email : '';
+        $('account-role').hidden = account.role !== 'admin';
+        $('nav-users').hidden = account.role !== 'admin';
+        document.querySelectorAll('.auth-form').forEach(form => form.reset());
+        checkHealth();
+        if (!location.hash.startsWith('#/')) location.hash = '#/dashboard';
+        else route();
+        startPolling();
+    }
+
+    async function submitAuth(form, handler) {
+        const submit = form.querySelector('button[type="submit"]');
+        setAuthMessage('auth-error', '');
+        if (!form.checkValidity()) {
+            const invalid = form.querySelector(':invalid');
+            setAuthMessage('auth-error', invalid.validity.valueMissing
+                ? 'Fill in every field.'
+                : invalid.type === 'email' ? 'Enter a valid email address.'
+                    : 'The password must be at least 8 characters.');
+            invalid.focus();
+            return;
+        }
+        const password = form.querySelector('input[autocomplete="new-password"]');
+        if (password && password.value.length < 8) {
+            setAuthMessage('auth-error', 'The password must be at least 8 characters.');
+            password.focus();
+            return;
+        }
+        submit.disabled = true;
+        try {
+            await handler();
+        } catch (error) {
+            setAuthMessage('auth-notice', '');
+            setAuthMessage('auth-error', error.message);
+        } finally {
+            submit.disabled = false;
+        }
+    }
+
+    function wireAuth() {
+        document.querySelectorAll('[data-auth-mode]').forEach(link => {
+            link.addEventListener('click', () => setAuthMode(link.dataset.authMode));
+        });
+
+        $('login-form').addEventListener('submit', event => {
+            event.preventDefault();
+            submitAuth(event.target, async () => {
+                const body = await api('/auth/login', { method: 'POST', body: {
+                    email: $('login-email').value.trim(), password: $('login-password').value,
+                } });
+                signedIn(body.user);
+            });
+        });
+
+        $('register-form').addEventListener('submit', event => {
+            event.preventDefault();
+            submitAuth(event.target, async () => {
+                const email = $('register-email').value.trim();
+                const body = await api('/auth/register', { method: 'POST', body: {
+                    full_name: $('register-name').value.trim(), email,
+                    password: $('register-password').value,
+                } });
+                if (body.status === 'signed_in') { signedIn(body.user); return; }
+                setAuthMode('login', `We sent a confirmation link to ${email}. Open it, then sign in.`);
+                $('login-email').value = email;
+                $('login-password').focus();
+            });
+        });
+
+        $('forgot-form').addEventListener('submit', event => {
+            event.preventDefault();
+            submitAuth(event.target, async () => {
+                const body = await api('/auth/forgot', { method: 'POST',
+                    body: { email: $('forgot-email').value.trim() } });
+                setAuthMode('login', body.message);
+            });
+        });
+
+        $('reset-form').addEventListener('submit', event => {
+            event.preventDefault();
+            submitAuth(event.target, async () => {
+                const body = await api('/auth/reset', { method: 'POST', body: {
+                    access_token: resetToken, password: $('reset-password').value,
+                } });
+                resetToken = null;
+                setAuthMode('login', body.message);
+            });
+        });
+
+        $('logout-btn').addEventListener('click', async () => {
+            try { await api('/auth/logout', { method: 'POST' }); } catch (e) { /* sign out locally anyway */ }
+            location.hash = '';
+            signedOut('You have signed out.');
+        });
+    }
+
+    /**
+     * Supabase email links return to this page with tokens in the URL fragment.
+     * Hand them to the server (which sets the session cookies) and remove them
+     * from the address bar and history immediately.
+     */
+    async function consumeEmailLink() {
+        const fragment = location.hash.slice(1);
+        if (!fragment.includes('access_token=') && !fragment.includes('error_description=')) return null;
+        const params = new URLSearchParams(fragment);
+        history.replaceState(null, '', location.pathname);
+
+        if (params.get('error_description')) {
+            return { notice: '', error: params.get('error_description') };
+        }
+        if (params.get('type') === 'recovery') {
+            resetToken = params.get('access_token');
+            return { notice: '' };
+        }
+        try {
+            const body = await api('/auth/session', { method: 'POST', body: {
+                access_token: params.get('access_token'), refresh_token: params.get('refresh_token') || '',
+            } });
+            return { user: body.user };
+        } catch (error) {
+            return { error: error.message };
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // Routing
     // ----------------------------------------------------------------------
     function showView(name, title) {
         Object.entries(views).forEach(([key, node]) => { node.hidden = key !== name; });
@@ -224,27 +460,233 @@
         void view.offsetWidth; // restart the entrance animation
         view.classList.add('view-enter');
         $('topbar-title').textContent = title;
+        document.querySelectorAll('.nav-link').forEach(link => {
+            const active = link.dataset.nav === name;
+            link.classList.toggle('is-active', active);
+            if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+        });
         window.scrollTo(0, 0);
     }
 
-    function goHome(keepQuery) {
-        document.title = 'DeepAgent Lab - Multi-Agent Research';
-        showView('home', 'New research');
-        if (!keepQuery) { input.value = ''; updateCounter(); }
-        setFieldError('');
-        markActiveHistory(null);
-        input.focus();
+    function showError(message) {
+        $('error-message').textContent = message;
+        showView('error', 'Error');
     }
 
-    function showToast(message) {
-        toast.textContent = message;
-        toast.classList.add('is-visible');
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 2600);
+    function route() {
+        if (!user) return;
+        const [, section, id] = location.hash.split('/');
+        closeSidebar();
+        setDownloadMenu(false);
+        if (section !== 'runs') stopWatching();
+        document.title = DEFAULT_TITLE;
+
+        if (section === 'new') {
+            showView('new', 'New research');
+            input.focus();
+        } else if (section === 'runs' && id) {
+            openRun(id);
+        } else if (section === 'users' && user.role === 'admin') {
+            showView('users', 'Users');
+            loadUsers();
+        } else {
+            if (section !== 'dashboard') history.replaceState(null, '', '#/dashboard');
+            showView('dashboard', 'Dashboard');
+            refreshRuns();
+        }
     }
 
     // ----------------------------------------------------------------------
-    // Home: explainer + form
+    // Dashboard
+    // ----------------------------------------------------------------------
+    function stageLabel(run) {
+        if (run.status === 'queued') return 'Waiting for a free slot';
+        if (run.status === 'awaiting_approval') return 'Waiting for your approval';
+        return run.stage ? `${AGENT_NAME[run.stage] || capitalize(run.stage)} working` : 'Working';
+    }
+
+    function runDuration(run) {
+        if (!run.started_at) return '';
+        const end = run.finished_at ? new Date(run.finished_at) : new Date();
+        return formatDuration(end - new Date(run.started_at));
+    }
+
+    async function refreshRuns() {
+        let body;
+        try {
+            body = await api('/runs');
+        } catch (error) {
+            if (error.status !== 401) showToast(error.message);
+            return;
+        }
+        runs = body.runs || [];
+        renderDashboard();
+    }
+
+    function startPolling() {
+        clearInterval(pollTimer);
+        // Active runs change server-side; poll while any exist, and lightly otherwise.
+        let tick = 0;
+        pollTimer = setInterval(() => {
+            if (!user || document.hidden) return;
+            tick += 1;
+            const anyActive = runs.some(run => ACTIVE.includes(run.status));
+            if (anyActive || tick % 8 === 0) refreshRuns();
+        }, 2500);
+    }
+
+    function renderDashboard() {
+        const active = runs.filter(run => ACTIVE.includes(run.status));
+        const completed = runs.filter(run => run.status === 'completed');
+        const stopped = runs.filter(run => run.status === 'failed' || run.status === 'cancelled');
+        $('tile-total').textContent = String(runs.length);
+        $('tile-active').textContent = String(active.length);
+        $('tile-completed').textContent = String(completed.length);
+        $('tile-stopped').textContent = String(stopped.length);
+        $('nav-active').hidden = active.length === 0;
+        $('nav-active').textContent = String(active.length);
+        if (views.dashboard.hidden) return;
+
+        // In progress
+        $('active-section').hidden = active.length === 0;
+        const activeList = $('active-list');
+        const seen = new Set();
+        active.forEach(run => {
+            seen.add(run.id);
+            let card = activeList.querySelector(`[data-run-id="${run.id}"]`);
+            if (!card) {
+                card = buildActiveCard(run);
+                activeList.appendChild(card);
+            }
+            card.dataset.status = run.status;
+            card.querySelector('.active-stage').textContent = stageLabel(run);
+            card.querySelector('.active-meta').textContent =
+                [run.round > 1 ? `Round ${run.round}` : '', runDuration(run)].filter(Boolean).join(' · ');
+            card.querySelector('.progress-fill').style.setProperty('--v', String((run.progress || 0) / 100));
+            card.querySelector('.progress').setAttribute('aria-valuenow', String(run.progress || 0));
+        });
+        Array.from(activeList.children).forEach(card => {
+            if (!seen.has(card.dataset.runId)) card.remove();
+        });
+
+        // All research
+        const term = $('run-search').value.trim().toLowerCase();
+        const visible = runs.filter(run => {
+            if (runFilter === 'completed' && run.status !== 'completed') return false;
+            if (runFilter === 'stopped' && run.status !== 'failed' && run.status !== 'cancelled') return false;
+            return !term || `${run.query} ${run.title}`.toLowerCase().includes(term);
+        });
+        const list = $('run-list');
+        clear(list);
+        visible.forEach(run => list.appendChild(buildRunRow(run)));
+        const empty = $('run-empty');
+        empty.hidden = visible.length > 0;
+        empty.textContent = runs.length === 0
+            ? 'No research yet. Start your first run and it will appear here.'
+            : 'No research matches this filter.';
+    }
+
+    function buildActiveCard(run) {
+        const card = el('li', 'active-card');
+        card.dataset.runId = run.id;
+        const link = el('a', 'active-query', run.query);
+        link.href = `#/runs/${run.id}`;
+        card.appendChild(link);
+
+        const line = el('div', 'active-line');
+        line.appendChild(el('span', 'active-stage'));
+        line.appendChild(el('span', 'active-meta'));
+        card.appendChild(line);
+
+        const progress = el('div', 'progress');
+        progress.setAttribute('role', 'progressbar');
+        progress.setAttribute('aria-valuemin', '0');
+        progress.setAttribute('aria-valuemax', '100');
+        progress.setAttribute('aria-label', 'Run progress');
+        progress.appendChild(el('span', 'progress-fill'));
+        card.appendChild(progress);
+
+        const actions = el('div', 'row-actions');
+        const open = el('a', 'btn btn-ghost btn-sm', 'Watch');
+        open.href = `#/runs/${run.id}`;
+        actions.appendChild(open);
+        actions.appendChild(button('Cancel', 'btn btn-ghost btn-sm', () => cancelRun(run.id)));
+        card.appendChild(actions);
+        return card;
+    }
+
+    function buildRunRow(run) {
+        const row = el('li', 'run-row');
+        row.dataset.status = run.status;
+
+        const main = el('div', 'run-main');
+        const link = el('a', 'run-title', run.title || run.query);
+        link.href = `#/runs/${run.id}`;
+        main.appendChild(link);
+        if (run.title) main.appendChild(el('span', 'run-sub', run.query));
+        else if (run.error && !ACTIVE.includes(run.status)) main.appendChild(el('span', 'run-sub', run.error));
+        row.appendChild(main);
+
+        const meta = el('div', 'run-meta');
+        meta.appendChild(el('span', 'status-chip', STATUS_LABEL[run.status] || run.status));
+        const facts = [formatTimeAgo(run.created_at)];
+        if (run.status === 'completed') facts.push(plural(run.source_count, 'source'));
+        if (run.finished_at) facts.push(runDuration(run));
+        meta.appendChild(el('span', 'run-facts', facts.filter(Boolean).join(' · ')));
+        row.appendChild(meta);
+
+        const actions = el('div', 'row-actions');
+        if (run.status === 'failed' || run.status === 'cancelled') {
+            actions.appendChild(button('Run again', 'btn btn-ghost btn-sm', () => retryRun(run.id)));
+        }
+        if (ACTIVE.includes(run.status)) {
+            actions.appendChild(button('Cancel', 'btn btn-ghost btn-sm', () => cancelRun(run.id)));
+        } else {
+            const remove = button('', 'icon-btn', () => askDeleteRun(run));
+            remove.setAttribute('aria-label', `Delete: ${run.title || run.query}`);
+            remove.appendChild(icon('trash'));
+            actions.appendChild(remove);
+        }
+        row.appendChild(actions);
+        return row;
+    }
+
+    async function cancelRun(runId) {
+        try {
+            await api(`/runs/${runId}/cancel`, { method: 'POST' });
+            showToast('Cancelling the run');
+        } catch (error) {
+            showToast(error.message);
+        }
+        refreshRuns();
+    }
+
+    async function retryRun(runId) {
+        try {
+            const body = await api(`/runs/${runId}/retry`, { method: 'POST' });
+            location.hash = `#/runs/${body.run.id}`;
+        } catch (error) {
+            showToast(error.message);
+        }
+    }
+
+    function askDeleteRun(run) {
+        confirmDanger('Delete this research?',
+            'The run and its report are removed from your account and cannot be recovered.',
+            'Delete', async () => {
+                try {
+                    await api(`/runs/${run.id}`, { method: 'DELETE' });
+                    showToast('Research deleted');
+                    if (location.hash.includes(run.id)) location.hash = '#/dashboard';
+                    else refreshRuns();
+                } catch (error) {
+                    showToast(`Delete failed: ${error.message}`);
+                }
+            });
+    }
+
+    // ----------------------------------------------------------------------
+    // New research
     // ----------------------------------------------------------------------
     function buildExplainer() {
         const list = $('how-list');
@@ -258,9 +700,9 @@
 
     function updateCounter() {
         const length = input.value.length;
+        const counter = $('query-counter');
         counter.textContent = `${length} / ${maxQueryLength}`;
         counter.classList.toggle('is-near', length > maxQueryLength * 0.9);
-        // Auto-grow with the text; an empty field falls back to its CSS height.
         input.style.height = '';
         if (length && input.scrollHeight > input.clientHeight) {
             input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
@@ -268,32 +710,36 @@
     }
 
     function setFieldError(message) {
-        queryError.textContent = message;
-        queryError.hidden = !message;
+        $('query-error').textContent = message;
+        $('query-error').hidden = !message;
         input.setAttribute('aria-invalid', message ? 'true' : 'false');
     }
 
-    function validateQuery(raw) {
-        const query = raw.replace(/\s+/g, ' ').trim();
-        if (query.length < 3) return { error: 'Enter a question of at least 3 characters.' };
-        if (query.length > maxQueryLength) return { error: `Keep the question under ${maxQueryLength} characters.` };
-        return { query };
-    }
-
-    function submitQuery() {
-        if (run) return;
-        const result = validateQuery(input.value);
-        if (result.error) {
-            setFieldError(result.error);
+    async function submitQuery() {
+        const query = input.value.replace(/\s+/g, ' ').trim();
+        if (query.length < 3) { setFieldError('Enter a question of at least 3 characters.'); input.focus(); return; }
+        if (query.length > maxQueryLength) {
+            setFieldError(`Keep the question under ${maxQueryLength} characters.`);
             input.focus();
             return;
         }
         setFieldError('');
-        startResearch(result.query);
+        const submit = $('submit-btn');
+        submit.disabled = true;
+        try {
+            const body = await api('/runs', { method: 'POST', body: { query } });
+            input.value = '';
+            updateCounter();
+            location.hash = `#/runs/${body.run.id}`;
+        } catch (error) {
+            if (error.status !== 401) setFieldError(error.message);
+        } finally {
+            submit.disabled = false;
+        }
     }
 
     // ----------------------------------------------------------------------
-    // Run: pipeline rail
+    // Run view: rail
     // ----------------------------------------------------------------------
     function buildRail() {
         clear(rail);
@@ -322,7 +768,7 @@
     }
 
     const stageOf = agent => rail.querySelector(`.stage[data-agent="${agent}"]`);
-    const STATUS_TEXT = { waiting: 'Waiting', active: 'Working', done: 'Done', warn: 'Sent back' };
+    const STATUS_TEXT = { waiting: 'Waiting', active: 'Working', done: 'Done', warn: 'Sent back', stopped: 'Stopped' };
 
     function setStage(agent, state, durationMs) {
         const stage = stageOf(agent);
@@ -334,7 +780,7 @@
         if (durationMs !== undefined) time.textContent = formatDuration(durationMs);
         if (state === 'active') {
             stage.dataset.startedAt = String(performance.now());
-            stage.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            if (watch && watch.live) stage.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         } else {
             delete stage.dataset.startedAt;
         }
@@ -361,8 +807,7 @@
     function log(source, message, tone) {
         const item = el('li', 'log-item');
         if (tone) item.dataset.tone = tone;
-        const elapsed = run ? (performance.now() - run.startedAt) / 1000 : 0;
-        item.appendChild(el('time', 'log-time', `${elapsed.toFixed(1)}s`));
+        item.appendChild(el('time', 'log-time', formatDuration(elapsedMs()) || '0.0s'));
         const text = el('span', 'log-text');
         text.appendChild(el('strong', null, source));
         text.appendChild(document.createTextNode(` ${message}`));
@@ -371,19 +816,23 @@
         logList.scrollTop = logList.scrollHeight;
     }
 
-    function addLoop(label, detail, tone) {
+    function addLoop(label, detail) {
         const pill = el('div', 'loop');
-        pill.dataset.tone = tone;
         pill.appendChild(icon('loop'));
         pill.appendChild(el('strong', null, label));
         if (detail) pill.appendChild(el('span', null, detail));
         loops.appendChild(pill);
     }
 
+    function elapsedMs() {
+        if (!watch || !watch.startedAt) return 0;
+        return (watch.endedAt || Date.now()) - watch.startedAt;
+    }
+
     function tickClock() {
-        if (!run) return;
+        if (!watch) return;
+        $('run-clock').textContent = formatDuration(elapsedMs()) || '0.0s';
         const now = performance.now();
-        $('run-clock').textContent = formatDuration(now - run.startedAt);
         rail.querySelectorAll('.stage[data-state="active"]').forEach(stage => {
             const startedAt = Number(stage.dataset.startedAt);
             if (startedAt) stage.querySelector('.stage-time').textContent = formatDuration(now - startedAt);
@@ -391,139 +840,143 @@
     }
 
     // ----------------------------------------------------------------------
-    // Run: lifecycle
+    // Run view: open, subscribe, finish
     // ----------------------------------------------------------------------
-    function startResearch(query) {
-        lastQuery = query;
-        run = {
-            query,
-            threadId: null,
-            startedAt: performance.now(),
+    function stopWatching() {
+        if (watch) watch.controller.abort();
+        watch = null;
+        clearInterval(clockTimer);
+        clockTimer = null;
+    }
+
+    async function openRun(runId) {
+        stopWatching();
+        let run;
+        try {
+            run = (await api(`/runs/${runId}`)).run;
+        } catch (error) {
+            if (error.status !== 401) {
+                showError(error.status === 404 || error.status === 422
+                    ? 'That research run does not exist or belongs to another account.' : error.message);
+            }
+            return;
+        }
+        if (location.hash !== `#/runs/${runId}`) return; // navigated away while loading
+
+        if (run.status === 'completed' && run.report) {
+            showReport(run);
+            return;
+        }
+
+        watch = {
+            run,
             controller: new AbortController(),
-            round: 1,
-            lanes: new Map(),   // researcher task_id -> lane element
+            startedAt: run.started_at ? new Date(run.started_at).getTime() : Date.now(),
+            endedAt: null,
+            live: false,        // false while replaying history, true once caught up
+            lanes: new Map(),
             lanesDone: 0,
+            round: 1,
             finished: false,
         };
-
         buildRail();
         clear(logList);
         clear(loops);
-        approval.hidden = true;
-        $('run-query').textContent = query;
-        $('run-state').textContent = 'Researching';
-        $('run-clock').textContent = '0.0s';
+        $('approval').hidden = true;
+        $('stopped').hidden = true;
+        $('run-query').textContent = run.query;
+        $('run-state').textContent = STATUS_LABEL[run.status] || 'Researching';
+        $('run-note').hidden = false;
         $('stat-round').textContent = '1';
         $('stat-subq').textContent = '-';
         $('stat-sources').textContent = '-';
         $('cancel-btn').hidden = false;
-        submitBtn.disabled = true;
-        markActiveHistory(null);
-        showView('run', 'Research in progress');
-        log('System', 'Run started.');
-
-        clearInterval(clockTimer);
+        $('cancel-btn').disabled = false;
+        showView('run', 'Research run');
         clockTimer = setInterval(tickClock, 100);
+        tickClock();
 
-        streamResearch(run).catch(error => {
-            if (error.name === 'AbortError') return;
-            failRun(error.message || 'The connection to the server was lost.');
+        follow(watch).catch(error => {
+            if (error.name === 'AbortError' || watch === null) return;
+            showStopped('Connection lost', `${error.message} The run is still going on the server; reopen it from the dashboard.`, false);
         });
+        // Anything that arrives after the first burst is live, not history.
+        const current = watch;
+        setTimeout(() => { if (watch === current) current.live = true; }, 600);
     }
 
-    function endRun() {
-        clearInterval(clockTimer);
-        clockTimer = null;
-        run = null;
-        submitBtn.disabled = false;
-    }
-
-    function failRun(message) {
-        endRun();
-        $('error-message').textContent = message;
-        showView('error', 'Run failed');
-        $('retry-btn').focus();
-        loadHistory();
-    }
-
-    function cancelResearch() {
-        if (!run) return;
-        run.controller.abort();
-        endRun();
-        goHome(true);
-        input.value = lastQuery;
-        updateCounter();
-        showToast('Research cancelled');
-        loadHistory();
-    }
-
-    async function streamResearch(activeRun) {
-        const response = await fetch('/research/stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: activeRun.query }),
-            signal: activeRun.controller.signal,
+    async function follow(current) {
+        const response = await api(`/runs/${current.run.id}/events`, {
+            signal: current.controller.signal, raw: true,
         });
-
-        if (!response.ok) throw new Error(await errorMessage(response));
-
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-
         for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
             const frames = buffer.split('\n\n');
             buffer = frames.pop();
-            frames.forEach(frame => dispatchFrame(frame, activeRun));
+            frames.forEach(frame => dispatchFrame(frame, current));
         }
-        if (buffer.trim()) dispatchFrame(buffer, activeRun);
-
-        if (run === activeRun && !activeRun.finished) {
-            failRun('The server closed the connection before the report was ready.');
+        if (watch === current && !current.finished) {
+            // The stream closed without a terminal event: re-read the durable state.
+            openRun(current.run.id);
         }
     }
 
-    async function errorMessage(response) {
-        let detail = '';
-        try {
-            const body = await response.json();
-            if (typeof body.detail === 'string') detail = body.detail;
-            else if (Array.isArray(body.detail) && body.detail[0]) detail = String(body.detail[0].msg || '');
-        } catch (e) { /* not JSON */ }
-        if (response.status === 429) return detail || 'Too many requests. Wait a moment and try again.';
-        return detail || `The server returned an error (HTTP ${response.status}).`;
-    }
-
-    function dispatchFrame(frame, activeRun) {
-        if (run !== activeRun) return; // cancelled or superseded
-        let name = 'message';
+    function dispatchFrame(frame, current) {
+        if (watch !== current) return;
+        let name = '';
         const dataLines = [];
         frame.split('\n').forEach(line => {
             if (line.startsWith('event:')) name = line.slice(6).trim();
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
         });
-        if (!dataLines.length) return;
+        if (!name || !dataLines.length) return; // keepalive comment
         let data;
         try { data = JSON.parse(dataLines.join('\n')); } catch (e) { return; }
-        const handler = handlers[name];
-        if (handler) handler(data);
+        if (handlers[name]) handlers[name](data);
     }
 
-    // ----------------------------------------------------------------------
-    // Run: event handlers (names match utils/sse.py)
-    // ----------------------------------------------------------------------
+    function showStopped(title, message, canRetry) {
+        if (watch) {
+            watch.finished = true;
+            watch.endedAt = Date.now();
+        }
+        clearInterval(clockTimer);
+        rail.querySelectorAll('.stage[data-state="active"]').forEach(stage => {
+            setStage(stage.dataset.agent, 'stopped');
+        });
+        rail.querySelectorAll('.lane[data-state="active"]').forEach(lane => { lane.dataset.state = 'empty'; });
+        $('stopped-title').textContent = title;
+        $('stopped-message').textContent = message;
+        $('retry-btn').hidden = !canRetry;
+        $('stopped-delete-btn').hidden = !canRetry;
+        $('stopped').hidden = false;
+        $('approval').hidden = true;
+        $('cancel-btn').hidden = true;
+        $('run-note').hidden = true;
+        refreshRuns();
+    }
+
     const handlers = {
+        queued() {
+            $('run-state').textContent = 'Queued';
+            log('System', 'Queued. The run starts when a slot is free.');
+        },
+
         research_start(data) {
-            run.threadId = data.thread_id;
+            if (!watch.run.started_at) watch.startedAt = Date.now();
+            $('run-state').textContent = 'Researching';
+            log('System', 'Run started.');
             if (data.mock_mode) log('System', 'Mock mode: agents return canned output, no API calls.', 'warn');
         },
 
         agent_start(data) {
             if (data.agent === 'researcher') {
-                if (run.lanes.size === run.lanesDone) startFanOut();
+                if (watch.lanes.size === watch.lanesDone) startFanOut();
                 addLane(data.task_id, data.sub_question);
                 if (stageOf('researcher').dataset.state !== 'active') setStage('researcher', 'active');
                 return;
@@ -533,12 +986,7 @@
         },
 
         agent_complete(data) {
-            if (data.agent === 'researcher') {
-                finishLane(data.task_id, data.duration_ms);
-                return;
-            }
-            // A critic that orders a replan, or an editor that fails QA, is
-            // marked "sent back" by its preview event; keep that state.
+            if (data.agent === 'researcher') { finishLane(data.task_id, data.duration_ms); return; }
             const stage = stageOf(data.agent);
             const state = stage && stage.dataset.state === 'warn' ? 'warn' : 'done';
             setStage(data.agent, state, data.duration_ms);
@@ -562,7 +1010,7 @@
         },
 
         researcher_task_complete(data) {
-            const lane = run.lanes.get(data.task_id);
+            const lane = watch.lanes.get(data.task_id);
             if (!lane) return;
             lane.querySelector('.lane-count').textContent = plural(data.source_count, 'source');
             if (!data.source_count) lane.dataset.state = 'empty';
@@ -586,8 +1034,7 @@
         },
 
         analyst_preview(data) {
-            const strengths = Object.entries(data.evidence_strength || {})
-                .map(([level, count]) => `${count} ${level}`);
+            const strengths = Object.entries(data.evidence_strength || {}).map(([level, count]) => `${count} ${level}`);
             const facts = [plural(data.insight_count, 'insight')];
             if (data.contradictions) facts.push(plural(data.contradictions, 'contradiction'));
             if (data.knowledge_gaps) facts.push(plural(data.knowledge_gaps, 'knowledge gap'));
@@ -600,10 +1047,9 @@
         critic_preview(data) {
             const verdicts = Object.entries(data.verdicts || {})
                 .map(([verdict, count]) => `${count} ${verdict.replace(/_/g, ' ')}`);
-            const decision = el('p', 'decision',
-                data.should_replan
-                    ? 'Not good enough. Sending the run back to the Planner.'
-                    : 'Quality is sufficient. Proceeding to the Writer.');
+            const decision = el('p', 'decision', data.should_replan
+                ? 'Not good enough. Sending the run back to the Planner.'
+                : 'Quality is sufficient. Proceeding to the Writer.');
             decision.dataset.tone = data.should_replan ? 'warn' : 'good';
             let gaps = null;
             if ((data.gaps || []).length) {
@@ -615,25 +1061,23 @@
                 meter(data.quality_score, 'Quality'),
                 meter(data.source_adequacy, 'Source adequacy'),
                 verdicts.length ? tagList(verdicts) : null,
-                gaps,
-                decision);
+                gaps, decision);
             if (data.should_replan) {
                 setStage('critic', 'warn');
-                run.pendingGaps = data.gaps || [];
+                watch.pendingGaps = data.gaps || [];
             }
         },
 
         replan(data) {
-            run.round = data.replan_count + 1;
-            $('stat-round').textContent = String(run.round);
+            watch.round = data.replan_count + 1;
+            $('stat-round').textContent = String(watch.round);
             $('stat-sources').textContent = '-';
-            const gaps = run.pendingGaps || [];
-            addLoop(`Replan ${data.replan_count}`,
-                gaps.length ? `Critic found ${plural(gaps.length, 'gap')}; planning round ${run.round}.`
-                    : `Planning round ${run.round}.`, 'warn');
-            log('Critic', `ordered a replan. Round ${run.round} begins.`, 'warn');
-            // The new round reruns everything. The Critic keeps its verdict on
-            // screen until it runs again, so the reason for the loop stays visible.
+            const gaps = watch.pendingGaps || [];
+            addLoop(`Replan ${data.replan_count}`, gaps.length
+                ? `Critic found ${plural(gaps.length, 'gap')}; planning round ${watch.round}.`
+                : `Planning round ${watch.round}.`);
+            log('Critic', `ordered a replan. Round ${watch.round} begins.`, 'warn');
+            // The Critic keeps its verdict on screen until it runs again.
             resetStages(AGENTS.map(agent => agent.id).filter(id => id !== 'critic'));
         },
 
@@ -659,8 +1103,7 @@
             }
             setStageBody('editor',
                 meter(data.citation_coverage, 'Citation coverage'),
-                el('p', 'detail-note',
-                    `${data.word_count} words. Structure ${data.schema_valid ? 'valid' : 'invalid'}.`),
+                el('p', 'detail-note', `${data.word_count} words. Structure ${data.schema_valid ? 'valid' : 'invalid'}.`),
                 checklist,
                 (data.warnings || []).length ? tagList(data.warnings, 'bullets') : null,
                 verdict);
@@ -668,53 +1111,62 @@
         },
 
         writer_retry(data) {
-            addLoop('Writer retry', 'Editor rejected the draft; one rewrite allowed.', 'warn');
+            addLoop('Writer retry', 'Editor rejected the draft; one rewrite allowed.');
             log('Editor', data.reason || 'sent the draft back to the Writer.', 'warn');
-            // The Editor keeps its failed verdict visible until it runs again.
             resetStages(['writer']);
         },
 
         human_approval_required(data) {
-            run.finished = true; // the stream ends here by design
-            clearInterval(clockTimer);
             $('run-state').textContent = 'Waiting for approval';
-            $('cancel-btn').hidden = true;
             const list = $('approval-plan');
             clear(list);
             ((data.plan || {}).sub_questions || []).forEach(q => {
                 list.appendChild(el('li', null, q.question || String(q)));
             });
-            approval.hidden = false;
-            approval.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-            $('approve-btn').focus();
-            log('System', 'Paused for human approval.', 'warn');
-            loadHistory();
+            $('approve-btn').disabled = $('reject-btn').disabled = false;
+            $('approval').hidden = false;
+            if (watch.live) $('approve-btn').focus();
+            log('System', 'Paused for your approval.', 'warn');
+        },
+
+        approved() {
+            $('approval').hidden = true;
+            $('run-state').textContent = 'Researching';
+            log('System', 'Approved. Continuing.');
         },
 
         complete(data) {
-            run.finished = true;
+            watch.finished = true;
+            watch.endedAt = Date.now();
             $('run-state').textContent = 'Complete';
             log('System', 'Report ready.');
-            const activeRun = run;
+            const current = watch;
             // Let the last stage settle visibly before switching views.
             setTimeout(() => {
-                if (run !== activeRun) return;
-                const query = activeRun.query;
-                endRun();
-                showReport(data.thread_id, data.report, { query });
-                loadHistory();
-            }, 650);
+                if (watch !== current) return;
+                const run = { ...current.run, status: 'completed', report: data.report };
+                stopWatching();
+                showReport(run);
+                refreshRuns();
+            }, current.live ? 650 : 0);
+        },
+
+        cancelled(data) {
+            $('run-state').textContent = 'Cancelled';
+            log('System', data.message || 'Cancelled.', 'warn');
+            showStopped('This run was cancelled', data.message || 'The run was stopped before it finished.', true);
         },
 
         error(data) {
-            run.finished = true;
-            failRun(data.message || 'The research run failed.');
+            $('run-state').textContent = 'Failed';
+            log('System', data.message || 'The run failed.', 'warn');
+            showStopped('The run did not finish', data.message || 'The research run failed.', true);
         },
     };
 
     function startFanOut() {
-        run.lanes.clear();
-        run.lanesDone = 0;
+        watch.lanes.clear();
+        watch.lanesDone = 0;
         setStageBody('researcher', el('ul', 'lanes'));
         log('Researchers', 'fan-out started.');
     }
@@ -723,68 +1175,31 @@
         const lanes = stageOf('researcher').querySelector('.lanes');
         const lane = el('li', 'lane');
         lane.dataset.state = 'active';
-        lane.dataset.startedAt = String(performance.now());
         lane.appendChild(el('span', 'lane-dot'));
         lane.appendChild(el('span', 'lane-q', question || 'Sub-question'));
         lane.appendChild(el('span', 'lane-count'));
         lanes.appendChild(lane);
-        run.lanes.set(taskId, lane);
+        watch.lanes.set(taskId, lane);
     }
 
     function finishLane(taskId, durationMs) {
-        const lane = run.lanes.get(taskId);
-        if (!lane || lane.dataset.state === 'done') return;
+        const lane = watch.lanes.get(taskId);
+        if (!lane || lane.dataset.finished) return;
         if (lane.dataset.state !== 'empty') lane.dataset.state = 'done';
         lane.dataset.finished = 'true';
-        run.lanesDone += 1;
+        watch.lanesDone += 1;
         log('Researcher', `finished "${lane.querySelector('.lane-q').textContent}" in ${formatDuration(durationMs)}.`);
-        if (run.lanesDone === run.lanes.size) {
-            const startedAt = Number(stageOf('researcher').dataset.startedAt);
-            setStage('researcher', 'done', startedAt ? performance.now() - startedAt : durationMs);
-        }
+        if (watch.lanesDone === watch.lanes.size) setStage('researcher', 'done', durationMs);
     }
 
-    // ----------------------------------------------------------------------
-    // Human approval
-    // ----------------------------------------------------------------------
-    async function resolveApproval(action) {
-        if (!run || !run.threadId) return;
-        const activeRun = run;
-        const approveBtn = $('approve-btn');
-        const rejectBtn = $('reject-btn');
-        approveBtn.disabled = rejectBtn.disabled = true;
-        if (action === 'approve') {
-            approveBtn.textContent = 'Continuing';
-            $('run-state').textContent = 'Analysing and writing';
-            ['collector', 'analyst', 'critic', 'writer', 'editor'].forEach(a => setStage(a, 'active'));
-            log('System', 'Approved. Finishing the run.');
-        }
+    async function decide(action) {
+        if (!watch) return;
+        $('approve-btn').disabled = $('reject-btn').disabled = true;
         try {
-            const response = await fetch('/research/resume', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ thread_id: activeRun.threadId, action }),
-            });
-            if (!response.ok) throw new Error(await errorMessage(response));
-            const body = await response.json();
-            if (run !== activeRun) return;
-            if (body.status === 'completed' && body.report) {
-                const query = activeRun.query;
-                endRun();
-                showReport(body.thread_id, body.report, { query });
-            } else if (body.status === 'rejected') {
-                endRun();
-                goHome(true);
-                showToast('Run rejected and stopped');
-            } else {
-                throw new Error(body.message || 'The run is still waiting for approval.');
-            }
-            loadHistory();
+            await api(`/runs/${watch.run.id}/decision`, { method: 'POST', body: { action } });
         } catch (error) {
-            if (run === activeRun) failRun(error.message);
-        } finally {
-            approveBtn.disabled = rejectBtn.disabled = false;
-            approveBtn.textContent = 'Approve and continue';
+            showToast(error.message);
+            $('approve-btn').disabled = $('reject-btn').disabled = false;
         }
     }
 
@@ -798,15 +1213,15 @@
         return node;
     }
 
-    function markdownList(items, className) {
-        const list = el('ul', className);
+    function listOf(tag, className, items) {
+        const list = el(tag, className);
         items.forEach(item => list.appendChild(renderInline(String(item), el('li'))));
         return list;
     }
 
-    function showReport(threadId, report, info) {
-        const context = info || {};
-        currentReport = { threadId, report };
+    function showReport(run) {
+        const report = run.report;
+        currentReport = { run };
         const article = $('report');
         clear(article);
         const meta = report.metadata || {};
@@ -816,21 +1231,19 @@
         const title = el('h1', null, report.title || 'Research report');
         title.id = 'report-title';
         header.appendChild(title);
-        if (context.query) header.appendChild(el('p', 'report-question', `Research question: ${context.query}`));
+        header.appendChild(el('p', 'report-question', `Research question: ${run.query}`));
 
         const stats = el('dl', 'report-stats');
         const stat = (label, value) => {
+            if (!value) return;
             const cell = el('div');
             cell.appendChild(el('dt', null, label));
             cell.appendChild(el('dd', null, value));
             stats.appendChild(cell);
         };
-        const created = context.createdAt ? new Date(context.createdAt) : new Date();
-        if (!Number.isNaN(created.getTime())) {
-            stat('Date', created.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }));
-        }
-        if (report.confidence_level) stat('Confidence', capitalize(report.confidence_level));
-        if (meta.total_duration_seconds) stat('Duration', formatDuration(meta.total_duration_seconds * 1000));
+        stat('Date', formatDate(run.created_at));
+        stat('Confidence', report.confidence_level ? capitalize(report.confidence_level) : '');
+        stat('Duration', meta.total_duration_seconds ? formatDuration(meta.total_duration_seconds * 1000) : '');
         stat('Sources cited', String((report.sources || []).length));
         stat('Searches', String(meta.total_searches ?? '-'));
         stat('Replans', String(meta.replan_count ?? 0));
@@ -843,47 +1256,31 @@
             summary.appendChild(renderInline(report.executive_summary, el('p')));
             article.appendChild(summary);
         }
-
         if ((report.quality_warnings || []).length) {
             const warnings = section('Editor warnings');
             warnings.classList.add('warnings');
             warnings.appendChild(el('p', 'detail-note',
                 'The report did not fully pass the QA gate. Read it with these caveats in mind.'));
-            warnings.appendChild(markdownList(report.quality_warnings, 'bullets'));
+            warnings.appendChild(listOf('ul', 'bullets', report.quality_warnings));
             article.appendChild(warnings);
         }
-
         if (report.summary) {
-            const summary = section('Analysis');
-            summary.appendChild(renderMarkdown(report.summary));
-            article.appendChild(summary);
+            const analysis = section('Analysis');
+            analysis.appendChild(renderMarkdown(report.summary));
+            article.appendChild(analysis);
         }
-
-        if ((report.key_findings || []).length) {
-            const findings = section('Key findings');
-            const list = el('ol', 'findings');
-            report.key_findings.forEach(item => list.appendChild(renderInline(String(item), el('li'))));
-            findings.appendChild(list);
-            article.appendChild(findings);
-        }
-
-        if ((report.recommendations || []).length) {
-            const recommendations = section('Recommendations');
-            const list = el('ol', 'findings');
-            report.recommendations.forEach(item => list.appendChild(renderInline(String(item), el('li'))));
-            recommendations.appendChild(list);
-            article.appendChild(recommendations);
-        }
-
-        [['risks', 'Risks and concerns'], ['contradictions', 'Contradictions'],
-            ['knowledge_gaps', 'Areas for further research']].forEach(([key, heading]) => {
+        [['key_findings', 'Key findings', 'ol', 'findings'],
+            ['recommendations', 'Recommendations', 'ol', 'findings'],
+            ['risks', 'Risks and concerns', 'ul', 'bullets'],
+            ['contradictions', 'Contradictions', 'ul', 'bullets'],
+            ['knowledge_gaps', 'Areas for further research', 'ul', 'bullets'],
+        ].forEach(([key, heading, tag, className]) => {
             if ((report[key] || []).length) {
                 const block = section(heading);
-                block.appendChild(markdownList(report[key], 'bullets'));
+                block.appendChild(listOf(tag, className, report[key]));
                 article.appendChild(block);
             }
         });
-
         if (report.confidence_rationale) {
             const confidence = section('Confidence assessment');
             const text = el('p', 'confidence');
@@ -894,13 +1291,11 @@
             confidence.appendChild(text);
             article.appendChild(confidence);
         }
-
         if (report.methodology) {
             const method = section('Methodology');
             method.appendChild(renderMarkdown(report.methodology));
             article.appendChild(method);
         }
-
         if ((report.sources || []).length) {
             const sources = section('Sources', 'sources');
             const list = el('ol', 'sources');
@@ -925,17 +1320,13 @@
             article.appendChild(sources);
         }
 
-        // Stagger the entrance of the sections.
         Array.from(article.children).forEach((child, index) => {
             child.style.setProperty('--i', String(Math.min(index, 8)));
         });
-
-        const exportBase = `/research/${encodeURIComponent(threadId)}/export`;
-        $('dl-md').href = `${exportBase}/markdown`;
-        $('dl-html').href = `${exportBase}/html`;
+        $('dl-md').href = `/runs/${encodeURIComponent(run.id)}/export/markdown`;
+        $('dl-html').href = `/runs/${encodeURIComponent(run.id)}/export/html`;
         document.title = `${report.title || 'Research report'} - DeepAgent Lab`;
         showView('report', report.title || 'Research report');
-        markActiveHistory(threadId);
     }
 
     function reportToText(report) {
@@ -943,15 +1334,14 @@
         if (report.executive_summary) lines.push(`> ${report.executive_summary}`, '');
         if (report.summary) lines.push('## Analysis', report.summary, '');
         [['key_findings', 'Key findings'], ['recommendations', 'Recommendations'],
-            ['risks', 'Risks and concerns'],
-            ['contradictions', 'Contradictions'], ['knowledge_gaps', 'Areas for further research']]
-            .forEach(([key, heading]) => {
-                if ((report[key] || []).length) {
-                    lines.push(`## ${heading}`);
-                    report[key].forEach(item => lines.push(`- ${item}`));
-                    lines.push('');
-                }
-            });
+            ['risks', 'Risks and concerns'], ['contradictions', 'Contradictions'],
+            ['knowledge_gaps', 'Areas for further research']].forEach(([key, heading]) => {
+            if ((report[key] || []).length) {
+                lines.push(`## ${heading}`);
+                report[key].forEach(item => lines.push(`- ${item}`));
+                lines.push('');
+            }
+        });
         if (report.methodology) lines.push('## Methodology', report.methodology, '');
         if ((report.sources || []).length) {
             lines.push('## Sources');
@@ -962,7 +1352,6 @@
         return lines.join('\n');
     }
 
-    /** Clipboard API first; fall back to a selection copy where it is blocked. */
     async function copyText(text) {
         try {
             await navigator.clipboard.writeText(text);
@@ -977,27 +1366,6 @@
             try { copied = document.execCommand('copy'); } catch (err) { copied = false; }
             area.remove();
             return copied;
-        }
-    }
-
-    async function copyReport() {
-        if (!currentReport) return;
-        const copied = await copyText(reportToText(currentReport.report));
-        showToast(copied ? 'Report copied to clipboard' : 'Copy failed: clipboard access was denied');
-    }
-
-    async function deleteReport() {
-        if (!currentReport) return;
-        const { threadId } = currentReport;
-        try {
-            const response = await fetch(`/research/${encodeURIComponent(threadId)}`, { method: 'DELETE' });
-            if (!response.ok && response.status !== 404) throw new Error(await errorMessage(response));
-            currentReport = null;
-            await loadHistory();
-            goHome(false);
-            showToast('Report deleted');
-        } catch (error) {
-            showToast(`Delete failed: ${error.message}`);
         }
     }
 
@@ -1016,92 +1384,106 @@
     }
 
     // ----------------------------------------------------------------------
-    // History
+    // Users (admin)
     // ----------------------------------------------------------------------
-    const STATUS_LABEL = {
-        completed: 'Completed', running: 'Running', failed: 'Failed', cancelled: 'Cancelled',
-        rejected: 'Rejected', paused_for_approval: 'Awaiting approval',
-    };
-
-    async function loadHistory() {
-        let data;
+    async function loadUsers() {
+        let body;
         try {
-            const response = await fetch('/research/history');
-            if (!response.ok) return;
-            data = await response.json();
-        } catch (e) {
-            return; // the status pill already reports an offline server
-        }
-        const sessions = data.sessions || [];
-        clear(historyList);
-        $('history-empty').hidden = sessions.length > 0;
-        $('history-count').textContent = sessions.length ? String(data.total) : '';
-
-        sessions.forEach(session => {
-            const item = el('button', 'history-item');
-            item.type = 'button';
-            item.dataset.threadId = session.thread_id;
-            item.dataset.status = session.status;
-            item.appendChild(el('span', 'history-query', session.query));
-            const meta = el('span', 'history-meta');
-            meta.appendChild(el('span', 'history-status', STATUS_LABEL[session.status] || session.status));
-            meta.appendChild(el('span', null, formatTimeAgo(session.created_at)));
-            item.appendChild(meta);
-            item.addEventListener('click', () => openSession(session));
-            historyList.appendChild(item);
-        });
-        markActiveHistory(currentReport && !views.report.hidden ? currentReport.threadId : null);
-    }
-
-    function markActiveHistory(threadId) {
-        historyList.querySelectorAll('.history-item').forEach(item => {
-            const active = item.dataset.threadId === threadId;
-            item.classList.toggle('is-active', active);
-            if (active) item.setAttribute('aria-current', 'true');
-            else item.removeAttribute('aria-current');
-        });
-    }
-
-    async function openSession(session) {
-        closeSidebar();
-        if (run) {
-            showToast('Cancel the current run before opening another report');
-            return;
-        }
-        if (!session.has_report) {
-            goHome(true);
-            input.value = session.query;
-            updateCounter();
-            showToast('That run has no report. The question is ready to run again.');
-            return;
-        }
-        try {
-            const response = await fetch(`/research/${encodeURIComponent(session.thread_id)}`);
-            if (!response.ok) throw new Error(await errorMessage(response));
-            const body = await response.json();
-            showReport(session.thread_id, body.report, { query: body.query, createdAt: body.created_at });
+            body = await api('/admin/users');
         } catch (error) {
-            showToast(`Could not open the report: ${error.message}`);
-            loadHistory();
+            if (error.status !== 401) showError(error.message);
+            return;
         }
+        const tbody = $('users-body');
+        clear(tbody);
+        $('users-empty').hidden = body.users.length > 0;
+        body.users.forEach(account => tbody.appendChild(buildUserRow(account)));
+    }
+
+    async function patchUser(account, values, successMessage) {
+        try {
+            await api(`/admin/users/${account.id}`, { method: 'PATCH', body: values });
+            showToast(successMessage);
+        } catch (error) {
+            showToast(error.message);
+        }
+        loadUsers();
+    }
+
+    function buildUserRow(account) {
+        const isSelf = account.id === user.id;
+        const row = el('tr');
+
+        const who = el('td');
+        who.appendChild(el('span', 'user-name', account.full_name || account.email));
+        if (account.full_name) who.appendChild(el('span', 'user-email', account.email));
+        if (isSelf) who.appendChild(el('span', 'role-tag', 'You'));
+        row.appendChild(who);
+
+        const roleCell = el('td');
+        const select = el('select', 'select');
+        select.setAttribute('aria-label', `Role for ${account.email}`);
+        ['user', 'admin'].forEach(role => {
+            const option = el('option', null, capitalize(role));
+            option.value = role;
+            option.selected = account.role === role;
+            select.appendChild(option);
+        });
+        select.disabled = isSelf;
+        select.addEventListener('change', () => patchUser(account, { role: select.value },
+            `${account.email} is now ${select.value === 'admin' ? 'an admin' : 'a regular user'}`));
+        roleCell.appendChild(select);
+        row.appendChild(roleCell);
+
+        const statusCell = el('td');
+        const chip = el('span', 'status-chip', account.is_active ? 'Active' : 'Deactivated');
+        chip.dataset.tone = account.is_active ? 'good' : 'bad';
+        statusCell.appendChild(chip);
+        row.appendChild(statusCell);
+
+        row.appendChild(el('td', 'num', String(account.run_count)));
+        row.appendChild(el('td', null, formatDate(account.created_at)));
+
+        const actions = el('td', 'row-actions');
+        if (!isSelf) {
+            actions.appendChild(button(account.is_active ? 'Deactivate' : 'Reactivate', 'btn btn-ghost btn-sm',
+                () => patchUser(account, { is_active: !account.is_active },
+                    `${account.email} ${account.is_active ? 'deactivated' : 'reactivated'}`)));
+            const remove = button('', 'icon-btn', () => confirmDanger(
+                'Delete this account?',
+                `${account.email} and all of their research (${plural(account.run_count, 'run')}) are permanently deleted.`,
+                'Delete account', async () => {
+                    try {
+                        await api(`/admin/users/${account.id}`, { method: 'DELETE' });
+                        showToast('Account deleted');
+                    } catch (error) {
+                        showToast(error.message);
+                    }
+                    loadUsers();
+                }));
+            remove.setAttribute('aria-label', `Delete ${account.email}`);
+            remove.appendChild(icon('trash'));
+            actions.appendChild(remove);
+        }
+        row.appendChild(actions);
+        return row;
     }
 
     // ----------------------------------------------------------------------
-    // Sidebar drawer (mobile), theme, server status
+    // Shell: sidebar drawer, theme, server status
     // ----------------------------------------------------------------------
     function openSidebar() {
         sidebar.classList.add('is-open');
-        scrim.hidden = false;
-        menuBtn.setAttribute('aria-expanded', 'true');
+        $('scrim').hidden = false;
+        $('menu-btn').setAttribute('aria-expanded', 'true');
         $('sidebar-close').focus();
     }
 
     function closeSidebar() {
         if (!sidebar.classList.contains('is-open')) return;
         sidebar.classList.remove('is-open');
-        scrim.hidden = true;
-        menuBtn.setAttribute('aria-expanded', 'false');
-        menuBtn.focus();
+        $('scrim').hidden = true;
+        $('menu-btn').setAttribute('aria-expanded', 'false');
     }
 
     function toggleTheme() {
@@ -1119,39 +1501,47 @@
     async function checkHealth() {
         const status = $('system-status');
         const text = $('system-status-text');
+        const note = $('setup-note');
         try {
             const response = await fetch('/health');
             if (!response.ok) throw new Error('unhealthy');
             const body = await response.json();
             const config = body.config || {};
-            const ready = config.llm_ready !== false;
-            status.dataset.state = ready ? 'online' : 'setup';
-            text.textContent = ready
-                ? `Online, ${config.mock_mode ? 'mock agents' : (config.llm_providers || []).join(' + ') || 'live'}`
-                : 'Setup needed: no LLM key';
-            $('setup-note').hidden = ready;
             $('mode-badge').hidden = !config.mock_mode;
             if (config.max_query_length) {
                 maxQueryLength = config.max_query_length;
                 input.maxLength = maxQueryLength;
                 updateCounter();
             }
+            const problems = [];
+            if (!config.database_ready) {
+                problems.push(config.database_configured
+                    ? 'The database is configured but not answering. Check that supabase/schema.sql has been run.'
+                    : 'The database is not configured (SUPABASE_URL and keys are missing from .env).');
+            }
+            if (!config.llm_ready) {
+                problems.push('No LLM API key is configured, so research runs cannot start. Add GROQ_API_KEY, GEMINI_API_KEY or OPENROUTER_API_KEY to .env and restart the server.');
+            }
+            (config.problems || []).forEach(problem => problems.push(problem));
+            status.dataset.state = problems.length ? 'setup' : 'online';
+            text.textContent = problems.length ? 'Setup needed'
+                : `Online, ${config.mock_mode ? 'mock agents' : (config.llm_providers || []).join(' + ') || 'live'}`;
+            note.hidden = problems.length === 0;
+            note.textContent = problems.length ? `Setup needed. ${problems.join(' ')}` : '';
+            return config;
         } catch (e) {
             status.dataset.state = 'offline';
             text.textContent = 'Server unreachable';
+            return null;
         }
     }
 
     // ----------------------------------------------------------------------
-    // Wiring
+    // Start-up
     // ----------------------------------------------------------------------
-    function init() {
-        buildExplainer();
-        syncThemeButton();
-        updateCounter();
-
-        form.addEventListener('submit', event => { event.preventDefault(); submitQuery(); });
-        input.addEventListener('input', () => { updateCounter(); if (!queryError.hidden) setFieldError(''); });
+    function wireApp() {
+        $('research-form').addEventListener('submit', event => { event.preventDefault(); submitQuery(); });
+        input.addEventListener('input', () => { updateCounter(); if (!$('query-error').hidden) setFieldError(''); });
         input.addEventListener('keydown', event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
                 event.preventDefault();
@@ -1167,20 +1557,37 @@
             });
         });
 
-        $('cancel-btn').addEventListener('click', cancelResearch);
-        $('approve-btn').addEventListener('click', () => resolveApproval('approve'));
-        $('reject-btn').addEventListener('click', () => resolveApproval('reject'));
-        $('retry-btn').addEventListener('click', () => {
-            if (lastQuery) startResearch(lastQuery); else goHome(false);
-        });
-        $('error-back-btn').addEventListener('click', () => {
-            goHome(true);
-            input.value = lastQuery;
-            updateCounter();
+        $('run-search').addEventListener('input', renderDashboard);
+        document.querySelectorAll('.segmented button').forEach(option => {
+            option.addEventListener('click', () => {
+                runFilter = option.dataset.filter;
+                document.querySelectorAll('.segmented button').forEach(other => {
+                    other.setAttribute('aria-pressed', String(other === option));
+                });
+                renderDashboard();
+            });
         });
 
-        $('back-btn').addEventListener('click', () => goHome(false));
-        $('copy-btn').addEventListener('click', copyReport);
+        $('cancel-btn').addEventListener('click', async () => {
+            if (!watch) return;
+            $('cancel-btn').disabled = true;
+            try {
+                await api(`/runs/${watch.run.id}/cancel`, { method: 'POST' });
+            } catch (error) {
+                showToast(error.message);
+                $('cancel-btn').disabled = false;
+            }
+        });
+        $('approve-btn').addEventListener('click', () => decide('approve'));
+        $('reject-btn').addEventListener('click', () => decide('reject'));
+        $('retry-btn').addEventListener('click', () => { if (watch) retryRun(watch.run.id); });
+        $('stopped-delete-btn').addEventListener('click', () => { if (watch) askDeleteRun(watch.run); });
+
+        $('copy-btn').addEventListener('click', async () => {
+            if (!currentReport) return;
+            const copied = await copyText(reportToText(currentReport.run.report));
+            showToast(copied ? 'Report copied to clipboard' : 'Copy failed: clipboard access was denied');
+        });
         $('download-btn').addEventListener('click', event => {
             event.stopPropagation();
             setDownloadMenu($('download-list').hidden);
@@ -1190,14 +1597,7 @@
             setDownloadMenu(false);
             showToast('Download started');
         }));
-        document.addEventListener('click', event => {
-            if (!event.target.closest('#download-menu')) setDownloadMenu(false);
-        });
-        $('delete-btn').addEventListener('click', () => deleteDialog.showModal());
-        deleteDialog.addEventListener('close', () => {
-            if (deleteDialog.returnValue === 'confirm') deleteReport();
-            deleteDialog.returnValue = '';
-        });
+        $('delete-btn').addEventListener('click', () => { if (currentReport) askDeleteRun(currentReport.run); });
         $('report').addEventListener('click', event => {
             const cite = event.target.closest('a.cite');
             if (!cite) return;
@@ -1205,23 +1605,51 @@
             jumpToSource(cite.getAttribute('href'));
         });
 
-        $('new-research-btn').addEventListener('click', () => {
-            closeSidebar();
-            if (run) { showToast('A run is in progress. Cancel it to start another.'); return; }
-            goHome(false);
+        // Act on the form's submit event (synchronous) rather than the dialog's
+        // close event, which browsers may defer until the next rendered frame.
+        confirmDialog.querySelector('form').addEventListener('submit', event => {
+            const action = confirmAction;
+            confirmAction = null;
+            if (event.submitter && event.submitter.value === 'confirm' && action) action();
         });
-        menuBtn.addEventListener('click', openSidebar);
+        confirmDialog.addEventListener('cancel', () => { confirmAction = null; });
+
+        $('menu-btn').addEventListener('click', openSidebar);
         $('sidebar-close').addEventListener('click', closeSidebar);
-        scrim.addEventListener('click', closeSidebar);
+        $('scrim').addEventListener('click', closeSidebar);
+        $('theme-btn').addEventListener('click', toggleTheme);
+        document.addEventListener('click', event => {
+            if (!event.target.closest('#download-menu')) setDownloadMenu(false);
+        });
         document.addEventListener('keydown', event => {
             if (event.key !== 'Escape') return;
             closeSidebar();
             if (!$('download-list').hidden) { setDownloadMenu(false); $('download-btn').focus(); }
         });
-        $('theme-btn').addEventListener('click', toggleTheme);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && user) refreshRuns();
+        });
+        window.addEventListener('hashchange', route);
+    }
 
-        checkHealth();
-        loadHistory();
+    async function init() {
+        buildExplainer();
+        syncThemeButton();
+        updateCounter();
+        wireAuth();
+        wireApp();
+
+        const link = await consumeEmailLink();
+        if (link && link.user) { signedIn(link.user); return; }
+
+        try {
+            const body = await api('/auth/me');
+            signedIn(body.user);
+        } catch (error) {
+            signedOut(link && link.notice);
+            if (link && link.error) setAuthMessage('auth-error', link.error);
+            else if (error.status === 503 || error.status === 0) setAuthMessage('auth-error', error.message);
+        }
     }
 
     init();

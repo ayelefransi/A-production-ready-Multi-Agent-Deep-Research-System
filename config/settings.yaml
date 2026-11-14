@@ -6,45 +6,60 @@
 # LLM Providers
 # ---------------------------------------------------------------------------
 llm:
+  # Model ids change often. These were verified against the providers' model
+  # lists on 2026-11-13; if a provider answers "model not found", list its
+  # current models and update the id here.
   providers:
-    gemini:
-      model: "gemini-2.5-flash"
-      api_key_env: "GEMINI_API_KEY"
-      temperature_default: 0.2
     groq:
-      model: "llama-3.1-8b-instant"
+      model: "openai/gpt-oss-120b"       # strongest reasoning model on Groq
       api_key_env: "GROQ_API_KEY"
+      temperature_default: 0.2
+    groq_fast:
+      model: "openai/gpt-oss-20b"        # fast and cheap, for the parallel fan-out
+      api_key_env: "GROQ_API_KEY"
+      temperature_default: 0.2
+    gemini:
+      model: "gemini-flash-lite-latest"
+      api_key_env: "GEMINI_API_KEY"
       temperature_default: 0.2
     openrouter:
       model: "meta-llama/llama-3.3-70b-instruct:free"
       api_key_env: "OPENROUTER_API_KEY"
       temperature_default: 0.2
 
-  # Role → provider mapping.  Primary is tried first; fallbacks in order.
+  # Role -> provider mapping. Primary is tried first; on a failed call (rate
+  # limit, outage) the same call is retried on each fallback in order.
+  # max_retries: how many times the PRIMARY provider retries a rate-limited
+  # call (it waits as the provider instructs) before handing over. The
+  # reasoning-heavy roles wait for the strong model, because a weaker fallback
+  # writes a visibly worse report; the high-volume roles hand over at once.
   roles:
     planner:
-      primary: groq
-      fallback: [gemini]
+      primary: groq_fast
+      fallback: [groq, gemini, openrouter]
       temperature: 0.2
     researcher:
-      primary: groq
-      fallback: [gemini]
-      temperature: 0.2
-    critic:
-      primary: groq
-      fallback: [gemini]
+      primary: groq_fast
+      fallback: [gemini, groq, openrouter]
       temperature: 0.2
     analyst:
       primary: groq
-      fallback: [gemini]
+      fallback: [gemini, groq_fast, openrouter]
+      max_retries: 2
       temperature: 0.3
+    critic:
+      primary: groq
+      fallback: [gemini, groq_fast, openrouter]
+      max_retries: 2
+      temperature: 0.2
     writer:
       primary: groq
-      fallback: [gemini]
+      fallback: [gemini, groq_fast, openrouter]
+      max_retries: 2
       temperature: 0.4
     editor:
-      primary: groq
-      fallback: [gemini]
+      primary: groq_fast
+      fallback: [gemini, groq, openrouter]
       temperature: 0.1
 
   # When true, all LLM calls return deterministic mock output (for tests/CI).
@@ -118,5 +133,15 @@ api:
   enable_streaming: true
   version: "3.1.0"
   max_query_length: 500        # Characters accepted in a research query
-  rate_limit_per_minute: 10    # Research starts per client IP per minute (0 = off)
-  max_stored_sessions: 200     # In-memory history cap; oldest sessions are evicted
+  rate_limit_per_minute: 10    # Research starts per user per minute (0 = off)
+  auth_rate_limit_per_minute: 10  # Sign-in/sign-up attempts per client IP per minute
+
+# ---------------------------------------------------------------------------
+# Background research runs
+# ---------------------------------------------------------------------------
+runs:
+  timeout_seconds: 900           # A run that exceeds this is stopped and marked failed
+  llm_timeout_seconds: 90        # Per LLM call; a hung provider cannot stall a run
+  max_concurrent: 4              # Runs executing at once across all users; the rest queue
+  max_active_per_user: 3         # Queued + running runs one user may have
+  approval_timeout_seconds: 600  # A run awaiting approval is cancelled after this

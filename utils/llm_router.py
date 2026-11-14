@@ -17,18 +17,15 @@ Fallback happens at two levels:
 from __future__ import annotations
 
 import os
-import re
 from typing import Any, List, Optional, Type
 
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel
 
 from config.settings import settings
+from utils.config_check import clean_key
 from utils.errors import LLMUnavailableError
 from utils.logger import logger
-
-# Values copied from .env.example ("your_groq_api_key_here") are not keys.
-_PLACEHOLDER_KEY = re.compile(r"^(your[_-].*|.*[_-]here|changeme|x{3,}|<.*>)$", re.IGNORECASE)
 
 NO_PROVIDER_MESSAGE = (
     "No LLM provider is configured. Add GROQ_API_KEY, GEMINI_API_KEY or "
@@ -41,14 +38,17 @@ def _api_key_for(provider_name: str) -> str:
     api_key_env = settings.llm_providers.get(provider_name, {}).get("api_key_env", "")
     if not api_key_env:
         return ""
-    api_key = os.environ.get(api_key_env, "") or getattr(settings, api_key_env.lower(), "")
-    api_key = (api_key or "").strip()
-    return "" if _PLACEHOLDER_KEY.match(api_key) else api_key
+    return clean_key(os.environ.get(api_key_env, "") or getattr(settings, api_key_env.lower(), ""))
 
 
 def available_providers() -> List[str]:
     """Names of configured providers that have a usable API key."""
     return [name for name in settings.llm_providers if _api_key_for(name)]
+
+
+def available_services() -> List[str]:
+    """Distinct services behind the available providers (for display)."""
+    return list(dict.fromkeys(name.split("_")[0] for name in available_providers()))
 
 
 def llm_ready() -> bool:
@@ -60,7 +60,8 @@ def llm_ready() -> bool:
 # Provider factory
 # ---------------------------------------------------------------------------
 
-def _build_provider(provider_name: str, temperature: float) -> BaseChatModel:
+def _build_provider(provider_name: str, temperature: float,
+                    max_retries: int = 0) -> BaseChatModel:
     """
     Return a LangChain ChatModel for the given provider name.
     Raises ``ValueError`` if the provider is unknown or unconfigured.
@@ -82,15 +83,19 @@ def _build_provider(provider_name: str, temperature: float) -> BaseChatModel:
             model=model_name,
             temperature=temperature,
             google_api_key=api_key,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=max_retries,
         )
 
-    if provider_name == "groq":
+    if provider_name.startswith("groq"):
         from langchain_groq import ChatGroq
 
         return ChatGroq(
             model=model_name,
             temperature=temperature,
             api_key=api_key,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=max_retries,
         )
 
     if provider_name == "openrouter":
@@ -101,6 +106,8 @@ def _build_provider(provider_name: str, temperature: float) -> BaseChatModel:
             temperature=temperature,
             openai_api_key=api_key,
             openai_api_base="https://openrouter.ai/api/v1",
+            timeout=settings.llm_timeout_seconds,
+            max_retries=max_retries,
         )
 
     raise ValueError(f"Unknown LLM provider: {provider_name}")
@@ -141,7 +148,10 @@ def get_llm(
     selected: List[str] = []
     for provider_name in dict.fromkeys(chain):  # de-duplicate, keep order
         try:
-            llm = _build_provider(provider_name, temperature)
+            # Only the role's primary provider waits out a rate limit; the
+            # fallbacks fail fast so a run never stalls on a second queue.
+            retries = role_cfg.get("max_retries", 0) if provider_name == chain[0] else 0
+            llm = _build_provider(provider_name, temperature, retries)
         except ValueError as exc:
             logger.warning(
                 "llm_router_provider_skipped", role=role, provider=provider_name, reason=str(exc)

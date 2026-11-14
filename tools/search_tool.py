@@ -12,16 +12,17 @@ from tavily import AsyncTavilyClient
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from config.settings import settings
+from utils.config_check import clean_key
 from utils.logger import logger
 
 # Engines tried, in order, when no Tavily key is configured.
-KEYLESS_BACKENDS = ("bing", "duckduckgo", "auto")
+KEYLESS_BACKENDS = ("auto", "duckduckgo", "yahoo", "mojeek")
 
 # Initialize client if key is provided
 _tavily_client = None
-if settings.tavily_enabled and settings.tavily_api_key:
+if settings.tavily_enabled and clean_key(settings.tavily_api_key):
     try:
-        _tavily_client = AsyncTavilyClient(api_key=settings.tavily_api_key)
+        _tavily_client = AsyncTavilyClient(api_key=clean_key(settings.tavily_api_key))
     except Exception as e:
         logger.error("failed_to_initialize_tavily", error=str(e))
 

@@ -33,35 +33,114 @@
         <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z" /></symbol>
         <symbol id="i-loop" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0113.7-5.7L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 01-13.7 5.7L4 15.5M4 20v-4.5h4.5" /></symbol>
         <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3L12 4zM12 10v4M12 17.5v.5" /></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></symbol>
+        <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0113 0M16 4.8a3.5 3.5 0 010 6.4M18 14.5a6.5 6.5 0 013.5 5.5" /></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4M10 16l4-4-4-4M14 12H4" /></symbol>
     </svg>
 
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <div class="app">
-        <!-- Sidebar: history -->
-        <aside class="sidebar" id="sidebar" aria-label="Research history">
+    <!-- Boot: shown until the session check returns -->
+    <div class="boot" id="boot" role="status">Loading</div>
+
+    <!-- ===================== Signed out ===================== -->
+    <div class="auth" id="auth" hidden>
+        <div class="auth-card">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="brand-name">DeepAgent <em>Lab</em></span>
+            </div>
+            <h1 id="auth-title">Sign in</h1>
+            <p class="auth-lede" id="auth-lede">Research with seven agents and a cited report at the end.</p>
+
+            <p class="notice" id="auth-notice" role="status" hidden></p>
+            <p class="field-error" id="auth-error" role="alert" hidden></p>
+
+            <form class="auth-form" id="login-form" novalidate>
+                <label for="login-email">Email</label>
+                <input id="login-email" type="email" autocomplete="email" required>
+                <label for="login-password">Password</label>
+                <input id="login-password" type="password" autocomplete="current-password" required>
+                <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+                <div class="auth-links">
+                    <button class="link" type="button" data-auth-mode="register">Create an account</button>
+                    <button class="link" type="button" data-auth-mode="forgot">Forgot password?</button>
+                </div>
+            </form>
+
+            <form class="auth-form" id="register-form" novalidate hidden>
+                <label for="register-name">Full name</label>
+                <input id="register-name" type="text" autocomplete="name" maxlength="120" required>
+                <label for="register-email">Email</label>
+                <input id="register-email" type="email" autocomplete="email" required>
+                <label for="register-password">Password</label>
+                <input id="register-password" type="password" autocomplete="new-password" minlength="8"
+                    aria-describedby="register-hint" required>
+                <p class="hint" id="register-hint">At least 8 characters. You will get an email to confirm the address.</p>
+                <button class="btn btn-primary btn-block" type="submit">Create account</button>
+                <div class="auth-links">
+                    <button class="link" type="button" data-auth-mode="login">I already have an account</button>
+                </div>
+            </form>
+
+            <form class="auth-form" id="forgot-form" novalidate hidden>
+                <label for="forgot-email">Email</label>
+                <input id="forgot-email" type="email" autocomplete="email" required>
+                <button class="btn btn-primary btn-block" type="submit">Send reset link</button>
+                <div class="auth-links">
+                    <button class="link" type="button" data-auth-mode="login">Back to sign in</button>
+                </div>
+            </form>
+
+            <form class="auth-form" id="reset-form" novalidate hidden>
+                <label for="reset-password">New password</label>
+                <input id="reset-password" type="password" autocomplete="new-password" minlength="8" required>
+                <p class="hint">At least 8 characters.</p>
+                <button class="btn btn-primary btn-block" type="submit">Set new password</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===================== Signed in ===================== -->
+    <div class="app" id="app" hidden>
+        <aside class="sidebar" id="sidebar" aria-label="Main navigation">
             <div class="sidebar-head">
-                <a class="brand" href="/" aria-label="DeepAgent Lab home">
+                <a class="brand" href="#/dashboard" aria-label="DeepAgent Lab dashboard">
                     <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
                     <span class="brand-name">DeepAgent <em>Lab</em></span>
                 </a>
-                <button class="icon-btn sidebar-close" id="sidebar-close" type="button" aria-label="Close history">
+                <button class="icon-btn sidebar-close" id="sidebar-close" type="button" aria-label="Close menu">
                     <svg class="icon"><use href="#i-close" /></svg>
                 </button>
             </div>
 
-            <button class="btn btn-primary btn-block" id="new-research-btn" type="button">
+            <a class="btn btn-primary btn-block" href="#/new">
                 <svg class="icon"><use href="#i-plus" /></svg>
                 New research
-            </button>
+            </a>
 
-            <h2 class="sidebar-title">History <span class="count" id="history-count"></span></h2>
-            <div class="history" id="history-list" aria-live="polite"></div>
-            <p class="history-empty" id="history-empty">
-                Finished reports appear here. History is kept in server memory and clears on restart.
-            </p>
+            <nav class="nav" aria-label="Sections">
+                <a class="nav-link" href="#/dashboard" data-nav="dashboard">
+                    <svg class="icon"><use href="#i-grid" /></svg>
+                    Dashboard
+                    <span class="nav-badge" id="nav-active" hidden></span>
+                </a>
+                <a class="nav-link" href="#/users" data-nav="users" id="nav-users" hidden>
+                    <svg class="icon"><use href="#i-users" /></svg>
+                    Users
+                </a>
+            </nav>
 
             <div class="sidebar-foot">
+                <div class="account">
+                    <span class="account-name" id="account-name"></span>
+                    <span class="account-email" id="account-email"></span>
+                    <span class="role-tag" id="account-role" hidden>Admin</span>
+                </div>
+                <button class="btn btn-ghost btn-block" id="logout-btn" type="button">
+                    <svg class="icon"><use href="#i-logout" /></svg>
+                    Sign out
+                </button>
                 <span class="status" id="system-status" data-state="checking">
                     <span class="status-dot" aria-hidden="true"></span>
                     <span id="system-status-text">Checking server</span>
@@ -72,11 +151,11 @@
 
         <div class="main-col">
             <header class="topbar">
-                <button class="icon-btn menu-btn" id="menu-btn" type="button" aria-label="Open history"
+                <button class="icon-btn menu-btn" id="menu-btn" type="button" aria-label="Open menu"
                     aria-controls="sidebar" aria-expanded="false">
                     <svg class="icon"><use href="#i-menu" /></svg>
                 </button>
-                <span class="topbar-title" id="topbar-title">New research</span>
+                <span class="topbar-title" id="topbar-title">Dashboard</span>
                 <span class="mode-badge" id="mode-badge" hidden>Mock mode</span>
                 <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch to dark theme">
                     <svg class="icon icon-moon"><use href="#i-moon" /></svg>
@@ -85,20 +164,58 @@
             </header>
 
             <main class="main" id="main" tabindex="-1">
+                <p class="setup-note" id="setup-note" role="status" hidden></p>
 
-                <!-- Home -->
-                <section class="view view-home" id="view-home" aria-labelledby="home-heading">
+                <!-- Dashboard -->
+                <section class="view view-dashboard" id="view-dashboard" aria-labelledby="dash-heading" hidden>
+                    <div class="page-head">
+                        <div>
+                            <p class="eyebrow">Your research</p>
+                            <h1 id="dash-heading">Dashboard</h1>
+                        </div>
+                        <a class="btn btn-primary" href="#/new">
+                            <svg class="icon"><use href="#i-plus" /></svg>
+                            New research
+                        </a>
+                    </div>
+
+                    <dl class="tiles" id="tiles">
+                        <div><dt>Total</dt><dd id="tile-total">0</dd></div>
+                        <div><dt>In progress</dt><dd id="tile-active">0</dd></div>
+                        <div><dt>Completed</dt><dd id="tile-completed">0</dd></div>
+                        <div><dt>Failed or cancelled</dt><dd id="tile-stopped">0</dd></div>
+                    </dl>
+
+                    <section aria-labelledby="active-heading" id="active-section" hidden>
+                        <h2 class="section-title" id="active-heading">In progress</h2>
+                        <ul class="active-list" id="active-list"></ul>
+                    </section>
+
+                    <section aria-labelledby="all-heading">
+                        <div class="list-head">
+                            <h2 class="section-title" id="all-heading">All research</h2>
+                            <div class="filters">
+                                <label class="sr-only" for="run-search">Search research</label>
+                                <input id="run-search" type="search" placeholder="Search questions">
+                                <div class="segmented" role="group" aria-label="Filter by status">
+                                    <button type="button" data-filter="all" aria-pressed="true">All</button>
+                                    <button type="button" data-filter="completed" aria-pressed="false">Completed</button>
+                                    <button type="button" data-filter="stopped" aria-pressed="false">Failed</button>
+                                </div>
+                            </div>
+                        </div>
+                        <ul class="run-list" id="run-list"></ul>
+                        <p class="empty" id="run-empty" hidden></p>
+                    </section>
+                </section>
+
+                <!-- New research -->
+                <section class="view view-home" id="view-new" aria-labelledby="home-heading" hidden>
                     <p class="eyebrow">Seven agents, one cited report</p>
                     <h1 id="home-heading">Ask a question worth <em>researching.</em></h1>
                     <p class="lede">A planner splits it into sub-questions, researchers work them in parallel,
                         and a critic can send the whole thing back before a word of the report is written.
-                        You watch every step.</p>
-
-                    <p class="setup-note" id="setup-note" role="status" hidden>
-                        <strong>Setup needed.</strong> No LLM API key is configured, so research runs
-                        cannot start. Add <code>GROQ_API_KEY</code>, <code>GEMINI_API_KEY</code> or
-                        <code>OPENROUTER_API_KEY</code> to the <code>.env</code> file and restart the server.
-                    </p>
+                        Runs continue in the background, so you can start several and come back later.</p>
 
                     <form class="ask" id="research-form" novalidate>
                         <label class="sr-only" for="query-input">Research question</label>
@@ -143,6 +260,10 @@
 
                 <!-- Run -->
                 <section class="view view-run" id="view-run" aria-labelledby="run-query" hidden>
+                    <a class="back-link" href="#/dashboard">
+                        <svg class="icon"><use href="#i-back" /></svg>
+                        Dashboard
+                    </a>
                     <div class="run-head">
                         <div>
                             <p class="eyebrow" id="run-state">Researching</p>
@@ -150,7 +271,20 @@
                         </div>
                         <div class="run-head-side">
                             <span class="clock" id="run-clock" aria-label="Elapsed time">0.0s</span>
-                            <button class="btn btn-ghost" id="cancel-btn" type="button">Cancel</button>
+                            <button class="btn btn-ghost" id="cancel-btn" type="button">Cancel run</button>
+                        </div>
+                    </div>
+                    <p class="run-note" id="run-note">This run continues on the server if you leave this page.</p>
+
+                    <div class="stopped" id="stopped" role="alert" hidden>
+                        <svg class="icon icon-lg"><use href="#i-alert" /></svg>
+                        <div>
+                            <h2 id="stopped-title">The run did not finish</h2>
+                            <p id="stopped-message"></p>
+                            <div class="stopped-actions">
+                                <button class="btn btn-primary" id="retry-btn" type="button">Run it again</button>
+                                <button class="btn btn-ghost btn-danger" id="stopped-delete-btn" type="button">Delete</button>
+                            </div>
                         </div>
                     </div>
 
@@ -185,10 +319,10 @@
                 <!-- Report -->
                 <section class="view view-report" id="view-report" aria-labelledby="report-title" hidden>
                     <div class="toolbar">
-                        <button class="btn btn-ghost" id="back-btn" type="button">
+                        <a class="btn btn-ghost" href="#/dashboard">
                             <svg class="icon"><use href="#i-back" /></svg>
-                            New research
-                        </button>
+                            Dashboard
+                        </a>
                         <div class="toolbar-actions">
                             <button class="btn btn-ghost" id="copy-btn" type="button">
                                 <svg class="icon"><use href="#i-copy" /></svg>
@@ -224,15 +358,40 @@
                     <article class="report" id="report"></article>
                 </section>
 
-                <!-- Error -->
+                <!-- Users (admin) -->
+                <section class="view view-users" id="view-users" aria-labelledby="users-heading" hidden>
+                    <div class="page-head">
+                        <div>
+                            <p class="eyebrow">Administration</p>
+                            <h1 id="users-heading">Users</h1>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="table" id="users-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">User</th>
+                                    <th scope="col">Role</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col">Runs</th>
+                                    <th scope="col">Joined</th>
+                                    <th scope="col"><span class="sr-only">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-body"></tbody>
+                        </table>
+                    </div>
+                    <p class="empty" id="users-empty" hidden>No users yet.</p>
+                </section>
+
+                <!-- Not found / load failure -->
                 <section class="view view-error" id="view-error" aria-labelledby="error-heading" hidden>
                     <div class="error-box" role="alert">
                         <svg class="icon icon-lg"><use href="#i-alert" /></svg>
-                        <h1 id="error-heading">The run did not finish</h1>
+                        <h1 id="error-heading">Something went wrong</h1>
                         <p id="error-message"></p>
                         <div class="error-actions">
-                            <button class="btn btn-primary" id="retry-btn" type="button">Try again</button>
-                            <button class="btn btn-ghost" id="error-back-btn" type="button">Edit question</button>
+                            <a class="btn btn-primary" href="#/dashboard">Back to dashboard</a>
                         </div>
                     </div>
                 </section>
@@ -240,13 +399,13 @@
         </div>
     </div>
 
-    <dialog class="dialog" id="delete-dialog" aria-labelledby="delete-title">
+    <dialog class="dialog" id="confirm-dialog" aria-labelledby="confirm-title">
         <form method="dialog">
-            <h2 id="delete-title">Delete this report?</h2>
-            <p>It is removed from the server and cannot be recovered.</p>
+            <h2 id="confirm-title"></h2>
+            <p id="confirm-text"></p>
             <div class="dialog-actions">
-                <button class="btn btn-ghost" value="cancel" type="submit">Keep it</button>
-                <button class="btn btn-primary btn-danger-solid" value="confirm" type="submit">Delete report</button>
+                <button class="btn btn-ghost" value="cancel" type="submit">Cancel</button>
+                <button class="btn btn-primary btn-danger-solid" id="confirm-ok" value="confirm" type="submit"></button>
             </div>
         </form>
     </dialog>

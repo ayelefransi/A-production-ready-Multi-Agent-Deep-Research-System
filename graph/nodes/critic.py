@@ -14,14 +14,14 @@ from typing import Any, Dict
 
 from tenacity import (
     retry,
-    retry_if_not_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
 from config.settings import settings
 from schemas.verifier import VerificationReport
-from utils.errors import PipelineError
+from utils.errors import is_retryable
 from utils.llm_router import get_llm
 from utils.logger import logger
 
@@ -29,7 +29,7 @@ from utils.logger import logger
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=2, min=2, max=20),
-    retry=retry_if_not_exception_type(PipelineError),
+    retry=retry_if_exception(is_retryable),
     reraise=True,
 )
 async def critic_node(state: Dict[str, Any]) -> Dict[str, Any]:
