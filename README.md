@@ -1,4 +1,5 @@
 # Multi-Agent Deep Research System
+<img width="1468" height="726" alt="1" src="https://github.com/user-attachments/assets/260a6b25-c5b6-47ac-babe-5eb9a9c356a8" />
 
 ## Overview
 
